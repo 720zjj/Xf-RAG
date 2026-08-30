@@ -1,0 +1,62 @@
+{
+  "name": "iflytek-translator-assistant",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test --test-concurrency=1",
+    "eval:rag": "node scripts/run-rag-evaluation.js",
+    "compose:config": "docker compose --env-file deploy/.env.compose.example config",
+    "compose:up": "docker compose --env-file .env.compose up --build -d",
+    "compose:down": "docker compose --env-file .env.compose down",
+    "db:backup": "node scripts/backup-mysql.js",
+    "db:restore": "node scripts/restore-mysql.js",
+    "test:document-jobs": "node --test test/documentJobState.test.js test/documentQueue.test.js test/documentJobService.test.js test/documentProcessingService.test.js test/documentRoutesJobs.test.js test/documentJobPresentation.test.js test/documentJobWiring.test.js test/documentWorker.test.js",
+    "db:init": "node server/migrate.js",
+    "db:migrate": "node server/migrate.js",
+    "preview": "vite preview",
+    "server": "node server/migrate.js && node --max-old-space-size=8192 server/index.js",
+    "worker:documents": "node --max-old-space-size=8192 server/workers/documentWorker.js",
+    "start": "node server/migrate.js && node --max-old-space-size=8192 server/index.js"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.3",
+    "@langchain/langgraph": "^1.4.8",
+    "@langchain/openai": "^1.5.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xenova/transformers": "^2.17.2",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^6.3.1",
+    "cors": "^2.8.6",
+    "dompurify": "^3.4.13",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
+    "marked": "^18.0.6",
+    "multer": "^2.2.0",
+    "mysql2": "^3.22.6",
+    "pdf-parse": "^2.4.5",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "docx": "^9.7.1",
+    "vite": "^6.0.0"
+  },
+  "overrides": {
+    "protobufjs": "7.6.5",
+    "sharp": "0.35.3"
+  }
+}

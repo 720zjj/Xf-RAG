@@ -1,0 +1,1175 @@
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import { canManageDocument, documentScopeLabel } from './documentAccess.js'
+import { parseAnswerSections, toStreamingPlainText } from './answerPresentation.js'
+import { getDocumentJobPresentation, shouldPollDocumentJobs } from './documentJobPresentation.js'
+import { normalizeAnswerBlocks, sourceIdSet, trustBadge } from './trustedAnswerPresentation.js'
+import { getSupportChannelCode } from './supportChannelLocation.js'
+import { SupportExperience } from './SupportExperience.jsx'
+import { SupportChannelManager } from './SupportChannelManager.jsx'
+
+const API = '/api'
+
+function renderMarkdown(value) {
+  if (!value) return ''
+  try {
+    return DOMPurify.sanitize(marked.parse(value), {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+      FORBID_ATTR: ['style']
+    })
+  } catch {
+    return DOMPurify.sanitize(String(value))
+  }
+}
+
+const ANSWER_SECTION_ICONS = {
+  conclusion: '✨', steps: '🧭', notice: '⚠️', product: '📱', sources: '📚', related: '💡', details: '📝'
+}
+
+const VIDEO_CATEGORY_ICONS = {
+  '网络设置': '📶', '蓝牙连接': '🔗', '翻译功能': '🗣️', '拍照翻译': '📷',
+  '语音功能': '🎙️', '系统设置': '⚙️', '常见问题': '💡', '基础使用': '▶️'
+}
+
+function AnswerReader({ answer, streaming = false }) {
+  if (streaming) return <div className="rag-answer-stream">{toStreamingPlainText(answer)}</div>
+
+  const sections = parseAnswerSections(answer)
+  return (
+    <div className="answer-reader">
+      {sections.map((section, index) => (
+        <section className={`answer-section answer-section--${section.key}`} key={`${section.key}-${index}`}>
+          <div className="answer-section-heading">
+            <span className="answer-section-icon" aria-hidden="true">{ANSWER_SECTION_ICONS[section.key] || '📝'}</span>
+            <span>{section.title}</span>
+          </div>
+          {section.type === 'steps' ? (
+            <ol className="answer-list answer-steps">
+              {section.content.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}
+            </ol>
+          ) : section.type === 'bullets' ? (
+            <ul className="answer-list answer-bullets">
+              {section.content.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}
+            </ul>
+          ) : (
+            <div className="answer-paragraphs">
+              {section.content.map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+const TRUSTED_BLOCK_TITLES = {
+  conclusion: '问题结论', step: '操作步骤', notice: '注意事项', scope: '适用产品和版本', related: '相关问题', details: '说明'
+}
+
+function TrustedAnswerReader({ blocks, onEvidenceSelect }) {
+  return (
+    <div className="answer-reader trusted-answer-reader">
+      {blocks.map((block, index) => (
+        <section className={`answer-section answer-section--${block.kind}`} key={`${block.kind}-${index}`}>
+          <div className="answer-section-heading">
+            <span className="answer-section-icon" aria-hidden="true">{ANSWER_SECTION_ICONS[block.kind] || '📝'}</span>
+            <span>{TRUSTED_BLOCK_TITLES[block.kind] || '说明'}</span>
+          </div>
+          <p className="trusted-answer-text">{block.text}</p>
+          {sourceIdSet(block).length > 0 && (
+            <div className="evidence-links" aria-label="回答依据">
+              {sourceIdSet(block).map(evidenceId => (
+                <button type="button" key={evidenceId} onClick={() => onEvidenceSelect(evidenceId)}>[{evidenceId}]</button>
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function SourceExcerpt({ source }) {
+  const textWithoutImages = String(source.text || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  return (
+    <div className="source-content">
+      <div className="source-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(textWithoutImages) }} />
+      {source.images?.length > 0 && (
+        <div className="source-images" aria-label="原文图片">
+          {source.images.map((image, index) => (
+            <img
+              className="source-image"
+              key={image}
+              src={image}
+              alt={`参考来源图片 ${index + 1}`}
+              loading="lazy"
+              onError={event => { event.currentTarget.hidden = true }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VideoRecommendationCard({ video, onPlay, onResolve, onTryNext, hasNext, isResolving, isResolved }) {
+  const duration = video.duration_seconds ? `时长 ${video.duration_seconds} 秒` : '时长未标注'
+  const solved = Number(video.resolve_count || 0)
+  const isPrimary = video.guidanceRole !== 'fallback'
+  return (
+    <article className="video-recommendation-card">
+      <div className={`video-guidance-badge ${isPrimary ? 'primary' : 'fallback'}`}>
+        {isPrimary ? '建议先看' : `备用方案 ${video.guidancePosition || ''}`}
+      </div>
+      <div className="video-card-heading">
+        <span className="video-category-icon" aria-hidden="true">{VIDEO_CATEGORY_ICONS[video.category] || '🎬'}</span>
+        <div>
+          <div className="video-category-label">{video.category || '操作视频'}</div>
+          <h3>{video.title}</h3>
+        </div>
+      </div>
+      {video.description && <p className="video-description">{video.description}</p>}
+      {video.guidanceReason && <p className="video-guidance-reason">💡 {video.guidanceReason}</p>}
+      {video.matchReasons?.length > 0 && (
+        <div className="video-match-reasons" aria-label="推荐原因">
+          {video.matchReasons.slice(0, 3).map((reason, index) => <span key={index}>{reason}</span>)}
+        </div>
+      )}
+      <div className="video-metadata">
+        <span>⏱ {duration}</span>
+        {video.product_model && <span>📱 {video.product_model}</span>}
+        {solved > 0 && <span>✅ {solved} 人已解决</span>}
+      </div>
+      <div className="video-card-actions">
+        <button type="button" className="video-play-button" onClick={() => onPlay(video)}>▶ 播放视频</button>
+        <button type="button" className="video-resolve-button" onClick={() => onResolve(video)} disabled={isResolved || isResolving}>
+          {isResolved ? '✓ 已反馈解决' : isResolving ? '提交中…' : '这条视频帮我解决了'}
+        </button>
+        {hasNext && !isResolved && <button type="button" className="video-next-button" onClick={onTryNext}>未解决，换一个方案</button>}
+      </div>
+    </article>
+  )
+}
+
+
+function AuthPage({ onLogin }) {
+  const [isLogin, setIsLogin] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setError(''); setLoading(true)
+    try {
+      const res = await fetch(`${API}${isLogin ? '/auth/login' : '/auth/register'}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isLogin ? { username, password } : { username, password, nickname }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        onLogin(data.data.user)
+      } else setError(data.error)
+    } catch { setError('网络错误，请确保后端服务已启动') }
+    setLoading(false)
+  }
+
+  return (
+    <div className="auth-container">
+      <div className="auth-card">
+        <h1>科大讯飞翻译机智能助手</h1>
+        <p className="auth-subtitle">硬件产品智能使用助手 · 自然语言问答 + 操作视频推荐</p>
+        <div className="auth-tabs">
+          <span className={isLogin ? 'active' : ''} onClick={() => { setIsLogin(true); setError('') }}>登录</span>
+          <span className={!isLogin ? 'active' : ''} onClick={() => { setIsLogin(false); setError('') }}>注册</span>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <input type="text" placeholder="用户名" value={username} onChange={e => setUsername(e.target.value)} required />
+          <input type="password" placeholder="密码" value={password} onChange={e => setPassword(e.target.value)} minLength={isLogin ? 1 : 8} maxLength={128} required />
+          {!isLogin && <input type="text" placeholder="昵称（可选）" value={nickname} onChange={e => setNickname(e.target.value)} />}
+          {error && <div className="auth-error">{error}</div>}
+          <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
+            {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const supportRouteIntent = window.location.pathname === '/support' || window.location.pathname.startsWith('/support/')
+  const supportChannelCode = getSupportChannelCode(window.location)
+  const supportMode = supportRouteIntent
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('start')
+  const [initialized, setInitialized] = useState(false)
+  const [initStatus, setInitStatus] = useState([])
+  const [initLoading, setInitLoading] = useState(false)
+
+  const [documents, setDocuments] = useState([])
+  const [selectedDoc, setSelectedDoc] = useState(null)
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [uploadLoading, setUploadLoading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState([])
+  const [ragQuestion, setRagQuestion] = useState('')
+  const [ragAnswer, setRagAnswer] = useState('')
+  const [ragAnswerBlocks, setRagAnswerBlocks] = useState([])
+  const [ragTrust, setRagTrust] = useState(null)
+  const [ragTraceId, setRagTraceId] = useState(null)
+  const [ragSources, setRagSources] = useState([])
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState(null)
+  const [answerFeedbackOutcome, setAnswerFeedbackOutcome] = useState(null)
+  const [answerFeedbackLoading, setAnswerFeedbackLoading] = useState(false)
+  const [ragLoading, setRagLoading] = useState(false)
+  const [ragHistory, setRagHistory] = useState([])
+  const [queryEnhancement, setQueryEnhancement] = useState(null)
+  const [ragMode, setRagMode] = useState('auto')
+  const [ragReflection, setRagReflection] = useState(false)
+  const [ragMeta, setRagMeta] = useState(null)
+  const [llmAvailable, setLlmAvailable] = useState(false)
+  // 流式深度思考状态
+  const [ragThinking, setRagThinking] = useState([])        // 思考步骤列表
+  const [ragThinkingExpanded, setRagThinkingExpanded] = useState(true)  // 思考面板折叠
+  const [ragStreamingDone, setRagStreamingDone] = useState(false)  // 流式是否完成
+  const [ragThinkStart, setRagThinkStart] = useState(0)      // 思考开始时间
+  const [ragThinkElapsed, setRagThinkElapsed] = useState(0)  // 思考耗时（完成后定格，避免重渲染时 Date.now() 持续累加）
+  const [ragAnswerTarget, setRagAnswerTarget] = useState('')  // 打字机目标文本
+  const [ragAnswerDisplay, setRagAnswerDisplay] = useState('')// 打字机当前显示文本
+  const [showMdPreview, setShowMdPreview] = useState(false)
+  const [mdContent, setMdContent] = useState('')
+  const [stats, setStats] = useState({ translationCount: 0, ragCount: 0, docCount: 0, charCount: 0 })
+  const [recommendedVideos, setRecommendedVideos] = useState([])
+  const [recommendedSops, setRecommendedSops] = useState([])
+  const [videoGuidance, setVideoGuidance] = useState(null)
+  const [activeGuidanceIndex, setActiveGuidanceIndex] = useState(0)
+  const [ragQaId, setRagQaId] = useState(null)
+  const [resolvedVideoIds, setResolvedVideoIds] = useState(() => new Set())
+  const [resolvingVideoId, setResolvingVideoId] = useState(null)
+  const [playingVideo, setPlayingVideo] = useState(null)  // 当前正在播放的视频（弹窗播放器）
+  const [videoLoadError, setVideoLoadError] = useState(false)  // 视频加载失败标记
+  const [supportChannel, setSupportChannel] = useState(null)
+  const [supportChannelLoading, setSupportChannelLoading] = useState(Boolean(supportChannelCode))
+  const [supportChannelError, setSupportChannelError] = useState('')
+  const fileInputRef = useRef(null)
+  // 对话记忆 sessionId（每次进入 RAG 页面生成一个，清除记忆时重新生成）
+  const sessionIdRef = useRef('rag-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
+
+  const productLine = ''
+  const productModel = ''
+  const effectiveProductLine = supportChannel?.productLine || productLine
+  const effectiveProductModel = supportChannel?.productModel || productModel
+  const tabs = supportMode ? [{ key: 'rag', label: '智能问答', icon: '🤖' }] : [
+    { key: 'start', label: '开始使用', icon: '🏠' },
+    { key: 'rag', label: '智能问答', icon: '🤖' },
+    { key: 'stats', label: '使用统计', icon: '📊' },
+  ]
+
+  useEffect(() => {
+    // 清理旧版本遗留的可被脚本读取的认证信息；新版本只使用 HttpOnly Cookie。
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    let active = true
+    fetch(`${API}/auth/me`)
+      .then(r => r.json())
+      .then(data => { if (active && data.ok) setUser(data.data) })
+      .catch(() => {})
+      .finally(() => { if (active) setAuthLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!user || !supportChannelCode) return undefined
+    let active = true
+    setSupportChannelLoading(true)
+    setSupportChannelError('')
+    setSupportChannel(null)
+    fetch(`${API}/support-channels/resolve/${encodeURIComponent(supportChannelCode)}`)
+      .then(async response => {
+        const data = await response.json()
+        if (!response.ok || !data.ok || !data.data) throw new Error(data.error || '该产品支持入口暂不可用')
+        if (active) {
+          setSupportChannel(data.data)
+          setActiveTab('rag')
+        }
+      })
+      .catch(error => {
+        if (active) setSupportChannelError(error.message || '该产品支持入口暂不可用')
+      })
+      .finally(() => { if (active) setSupportChannelLoading(false) })
+    return () => { active = false }
+  }, [user, supportChannelCode])
+
+  useEffect(() => {
+    if (supportMode && supportChannel) setActiveTab('rag')
+  }, [supportMode, supportChannel])
+
+  useEffect(() => { if (user) { loadDocuments(); loadStats(); checkLlmStatus() } }, [user])
+
+  const checkLlmStatus = async () => {
+    try {
+      const r = await fetch(`${API}/health`)
+      const d = await r.json()
+      setLlmAvailable(d.llm?.available || d.agentEnabled || false)
+    } catch { setLlmAvailable(false) }
+  }
+
+  const apiHeaders = () => ({ 'Content-Type': 'application/json' })
+  const supportApiFetch = (path, options) => fetch(path, options)
+
+  const resetRagResult = () => {
+    setRagAnswer(''); setRagAnswerTarget(''); setRagAnswerDisplay(''); setRagAnswerBlocks([]); setRagTrust(null); setRagTraceId(null); setRagSources([])
+    setQueryEnhancement(null); setRagMeta(null); setRecommendedVideos([]); setRecommendedSops([])
+    setVideoGuidance(null); setActiveGuidanceIndex(0)
+    setRagQaId(null); setSelectedEvidenceId(null); setAnswerFeedbackOutcome(null); setAnswerFeedbackLoading(false); setResolvedVideoIds(new Set()); setResolvingVideoId(null)
+  }
+
+  const guidanceVideos = useMemo(() => {
+    if (!videoGuidance?.primaryVideo) return recommendedVideos
+    return [videoGuidance.primaryVideo, ...(videoGuidance.fallbackVideos || [])]
+  }, [videoGuidance, recommendedVideos])
+
+  const activeGuidanceVideo = guidanceVideos[activeGuidanceIndex] || guidanceVideos[0] || null
+  const handleTryNextVideo = () => {
+    if (activeGuidanceIndex < guidanceVideos.length - 1) setActiveGuidanceIndex(index => index + 1)
+  }
+
+  const handleVideoResolve = async (video) => {
+    if (resolvedVideoIds.has(video.id) || resolvingVideoId === video.id) return
+    setResolvingVideoId(video.id)
+    try {
+      const response = await fetch(`${API}/video/${video.id}/resolve`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ qaId: ragQaId })
+      })
+      const data = await response.json()
+      if (!data.ok) throw new Error(data.error || '提交反馈失败')
+
+      setResolvedVideoIds(previous => new Set([...previous, video.id]))
+      if (data.counted) {
+        const updateResolveCount = item => Number(item.id) === Number(video.id)
+          ? { ...item, resolve_count: Number(item.resolve_count || 0) + 1 }
+          : item
+        setRecommendedVideos(previous => previous.map(updateResolveCount))
+        setPlayingVideo(previous => previous ? updateResolveCount(previous) : previous)
+      }
+    } catch (error) {
+      alert(`反馈提交失败：${error.message}`)
+    } finally {
+      setResolvingVideoId(null)
+    }
+  }
+
+  const handleEvidenceSelect = (evidenceId) => {
+    setSelectedEvidenceId(evidenceId)
+    document.getElementById(`rag-source-${evidenceId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const handleAnswerFeedback = async (outcome) => {
+    if (!ragTraceId || answerFeedbackLoading) return
+    setAnswerFeedbackLoading(true)
+    try {
+      const response = await fetch(`${API}/rag/feedback`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ traceId: ragTraceId, outcome, reasonCode: outcome === 'unsolved' ? 'unspecified' : '' })
+      })
+      const data = await response.json()
+      if (!data.ok) throw new Error(data.error || '提交反馈失败')
+      setAnswerFeedbackOutcome(data.data.outcome)
+    } catch (error) {
+      alert(`反馈提交失败：${error.message}`)
+    } finally {
+      setAnswerFeedbackLoading(false)
+    }
+  }
+
+  const applyTrustedRagFinal = (data) => {
+    if (data.traceId) setRagTraceId(data.traceId)
+    if (data.trust) setRagTrust(data.trust)
+    if (data.answerBlocks) setRagAnswerBlocks(normalizeAnswerBlocks(data.answerBlocks, data.answer || ''))
+    if (data.sources) setRagSources(data.sources)
+  }
+
+  const handleInit = async () => {
+    if (!user) return
+    setInitLoading(true); setInitStatus(['正在检查后端与数据库连接...']); setInitialized(false)
+    try {
+      const r = await fetch(`${API}/health`)
+      const data = await r.json()
+      if (!r.ok || !data.ok) throw new Error(data.message || '服务尚未就绪')
+      setInitStatus(prev => [...prev, '数据库连接正常', data.llm?.available ? '语言模型已就绪' : '语言模型正在预热或未配置，将使用检索式回答', '文档与向量存储可用', '初始化完成！'])
+      setInitialized(true)
+    } catch (err) {
+      setInitStatus(prev => [...prev, `初始化失败：${err.message}`])
+    } finally {
+      setInitLoading(false)
+    }
+  }
+
+  const loadDocuments = async () => {
+    try {
+      const r = await fetch(`${API}/documents/list`, { headers: apiHeaders() })
+      const d = await r.json()
+      if (d.ok) setDocuments(d.data)
+    } catch {}
+  }
+
+  // 自动选择第一个已就绪的文档
+  useEffect(() => {
+    if (documents.length > 0 && !selectedDoc) {
+      const ready = documents.find(doc => doc.status === 1)
+      if (ready) handleSelectDoc(ready)
+    }
+  }, [documents])
+
+  useEffect(() => {
+    if (!shouldPollDocumentJobs(documents)) return undefined
+    const timer = setInterval(() => {
+      loadDocuments()
+      loadStats()
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [documents])
+
+  // 打字机效果：逐字显示 answer
+  useEffect(() => {
+    if (!ragAnswerTarget) { setRagAnswerDisplay(''); return }
+    let idx = 0
+    const timer = setInterval(() => {
+      idx++
+      setRagAnswerDisplay(ragAnswerTarget.slice(0, idx))
+      if (idx >= ragAnswerTarget.length) clearInterval(timer)
+    }, 20) // 每 20ms 一个字
+    return () => clearInterval(timer)
+  }, [ragAnswerTarget])
+
+  // 思考完成时定格耗时：只在 ragStreamingDone 变为 true 时计算一次，
+  // 避免后续打字机重渲染反复读取 Date.now() 导致计时器一直走
+  useEffect(() => {
+    if (ragStreamingDone && ragThinkStart) {
+      setRagThinkElapsed(((Date.now() - ragThinkStart) / 1000).toFixed(1))
+    }
+  }, [ragStreamingDone, ragThinkStart])
+
+  // 完成时默认保留思考过程，用户仍可在完成后手动折叠。
+  useEffect(() => {
+    if (ragStreamingDone && ragThinking.length > 0) setRagThinkingExpanded(true)
+  }, [ragStreamingDone, ragThinking.length])
+
+  const loadStats = async () => { try { const r = await fetch(`${API}/rag/stats`, { headers: apiHeaders() }); const d = await r.json(); if (d.ok) setStats(prev => ({ ...prev, ragCount: d.data?.total || 0 })) } catch {} }
+  const loadRagHistory = async () => { try { const r = await fetch(selectedDoc ? `${API}/rag/history?documentId=${selectedDoc.id}` : `${API}/rag/history`, { headers: apiHeaders() }); const d = await r.json(); if (d.ok) setRagHistory(d.data) } catch {} }
+
+
+
+  const handleFileChange = (e) => { const f = e.target.files?.[0]; if (f) { setUploadedFile(f); setMdContent(''); setShowMdPreview(false) } }
+
+  const handleLoadFile = async () => {
+    if (!uploadedFile || !initialized) return; setUploadLoading(true); setUploadStatus(['正在上传文件...'])
+    const fd = new FormData(); fd.append('file', uploadedFile)
+    try {
+      const r = await fetch(`${API}/documents/upload`, { method: 'POST', body: fd })
+      const d = await r.json()
+      if (d.ok) {
+        const queuedText = d.data.duplicated
+          ? '检测到相同文件，已复用已有文档任务'
+          : d.data.job?.queueAvailable === false
+            ? '任务已保存，队列暂不可用，系统会自动恢复'
+            : d.data.statusName === 'queued'
+              ? '已入队，等待后台解析'
+              : `任务状态：${d.data.statusName || '已创建'}`
+        setUploadStatus([`文件上传成功：${uploadedFile.name}`, `文件类型：${String(d.data.type || '').toUpperCase()}`, queuedText])
+        if (uploadedFile.name.toLowerCase().endsWith('.md')) { const reader = new FileReader(); reader.onload = e => { setMdContent(e.target.result); setShowMdPreview(true) }; reader.readAsText(uploadedFile) }
+        await loadDocuments(); await loadStats()
+      } else setUploadStatus(p => [...p, `上传失败: ${d.error}`])
+    } catch { setUploadStatus(p => [...p, '网络错误']) }
+    setUploadLoading(false)
+  }
+
+  const handleSelectDoc = async (doc) => {
+    setSelectedDoc(doc); setRagAnswer(''); setRagSources([])
+    try { const r = await fetch(`${API}/documents/${doc.id}`, { headers: apiHeaders() }); const d = await r.json(); if (d.ok && d.data.content) { setMdContent(d.data.content); setShowMdPreview(true) } } catch {}
+  }
+
+  const handleDeleteDoc = async (e, docId) => {
+    e.stopPropagation()
+    if (!window.confirm('确定要删除该文档吗？')) return
+    try {
+      const r = await fetch(`${API}/documents/${docId}`, { method: 'DELETE', headers: apiHeaders() })
+      const d = await r.json()
+      if (d.ok) {
+        if (selectedDoc?.id === docId) { setSelectedDoc(null); setMdContent('') }
+        loadDocuments(); loadStats()
+      } else setUploadStatus([`删除失败：${d.error || '请稍后重试'}`])
+    } catch {}
+  }
+
+  const handleReparseDoc = async (e, docId) => {
+    e.stopPropagation()
+    if (!window.confirm('确定要重新解析该文档吗？')) return
+    try {
+      const r = await fetch(`${API}/documents/${docId}/reparse`, { method: 'POST', headers: apiHeaders() })
+      const d = await r.json()
+      if (d.ok) {
+        setUploadStatus(['已创建重新解析任务，正在等待后台处理'])
+        await loadDocuments()
+      } else {
+        setUploadStatus([`重新解析失败：${d.error || '请稍后重试'}`])
+      }
+    } catch { setUploadStatus(['网络错误，请稍后重试']) }
+  }
+
+  const handleRetryDoc = async (e, docId) => {
+    e.stopPropagation()
+    if (!window.confirm('确定要重新提交此文档吗？')) return
+    try {
+      const r = await fetch(`${API}/documents/${docId}/retry`, { method: 'POST', headers: apiHeaders() })
+      const d = await r.json()
+      if (d.ok) {
+        setUploadStatus(['已创建重试任务，正在等待后台处理'])
+        await loadDocuments()
+      } else setUploadStatus([`重试失败：${d.error || '请稍后重试'}`])
+    } catch { setUploadStatus(['网络错误，请稍后重试']) }
+  }
+
+  const handleCancelDoc = async (e, docId) => {
+    e.stopPropagation()
+    if (!window.confirm('确定要取消此文档处理任务吗？')) return
+    try {
+      const r = await fetch(`${API}/documents/${docId}/cancel`, { method: 'POST', headers: apiHeaders() })
+      const d = await r.json()
+      if (d.ok) {
+        setUploadStatus([d.data.pending ? '已请求取消，Worker 会在安全边界停止任务' : '文档任务已取消'])
+        await loadDocuments()
+      } else setUploadStatus([`取消失败：${d.error || '请稍后重试'}`])
+    } catch { setUploadStatus(['网络错误，请稍后重试']) }
+  }
+
+  // SSE 流式深度思考（ReAct / Plan-Solve）
+  const handleRagAskStream = async () => {
+    if (!ragQuestion.trim() || (supportMode && !supportChannel)) return
+    setRagLoading(true); resetRagResult()
+    setRagThinking([]); setRagThinkingExpanded(true); setRagStreamingDone(false)
+    setRagThinkStart(Date.now())
+
+    const controller = new AbortController()
+    try {
+      const r = await fetch(`${API}/rag/ask-stream`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          question: ragQuestion.trim(),
+          mode: ragMode,
+          sessionId: sessionIdRef.current,
+          productLine: effectiveProductLine,
+          productModel: effectiveProductModel
+        }),
+        signal: controller.signal
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: `HTTP ${r.status}` }))
+        throw new Error(err.error || `HTTP ${r.status}`)
+      }
+
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+
+        // 解析 SSE 事件
+        const lines = buf.split('\n')
+        buf = lines.pop() // 保留不完整的最后一行
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'answer') {
+                setRagAnswer(data.answer)
+                setRagAnswerTarget(data.answer)
+                setRagMeta(prev => ({ ...prev, answerSource: data.answerSource }))
+                if (data.trust) setRagTrust(data.trust)
+              } else if (eventType === 'route') {
+                // 路由智能体决策结果
+                setRagMeta(prev => ({ ...prev, router: data }))
+              } else if (eventType === 'done') {
+                setRagMeta(prev => ({ ...prev, agent: data.agent, router: data.router || prev?.router, memory: data.memory || prev?.memory }))
+                if (data.qaId) setRagQaId(data.qaId)
+                applyTrustedRagFinal(data)
+                if (data.queryEnhancement) setQueryEnhancement(data.queryEnhancement)
+                if (data.recommendedVideos) setRecommendedVideos(data.recommendedVideos)
+                if (data.recommendedSops) setRecommendedSops(data.recommendedSops)
+                if (data.videoGuidance) setVideoGuidance(data.videoGuidance)
+                setRagStreamingDone(true)
+              } else if (eventType === 'error') {
+                const errMsg = '深度思考失败：' + (data.message || '')
+                setRagAnswer(errMsg)
+                setRagAnswerTarget(errMsg)
+              } else if (eventType === 'token') {
+                // 流式 token：追加到当前 reasoning 步骤的 rawContent
+                setRagThinking(prev => {
+                  const rev = [...prev].reverse()
+                  const idx = rev.findIndex(s => s.type === 'reasoning')
+                  if (idx === -1) {
+                    return [...prev, { type: 'reasoning', round: data.round, rawContent: data.token, thought: '', action: '' }]
+                  }
+                  const realIdx = prev.length - 1 - idx
+                  return prev.map((s, i) =>
+                    i === realIdx ? { ...s, rawContent: (s.rawContent || '') + data.token } : s
+                  )
+                })
+              } else if (eventType === 'reasoning') {
+                // 完整 reasoning：补充 thought/action 元信息
+                setRagThinking(prev => {
+                  const rev = [...prev].reverse()
+                  const idx = rev.findIndex(s => s.type === 'reasoning')
+                  if (idx === -1) {
+                    return [...prev, { ...data, ts: Date.now() }]
+                  }
+                  const realIdx = prev.length - 1 - idx
+                  return prev.map((s, i) =>
+                    i === realIdx ? { ...s, thought: data.thought || '', action: data.action || '', rawContent: data.rawContent || s.rawContent } : s
+                  )
+                })
+              } else {
+                // 思考过程事件：status / search / plan
+                setRagThinking(prev => [...prev, { ...data, ts: Date.now() }])
+              }
+            } catch { /* 忽略解析错误 */ }
+            eventType = ''
+          }
+        }
+      }
+      // 流结束后，处理 buf 中可能残留的末行
+      if (buf.trim()) {
+        const lastLines = buf.split('\n')
+        let eventType = ''
+        for (const line of lastLines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'done') {
+                setRagMeta(prev => ({ ...prev, agent: data.agent, router: data.router || prev?.router }))
+                if (data.qaId) setRagQaId(data.qaId)
+                applyTrustedRagFinal(data)
+                if (data.queryEnhancement) setQueryEnhancement(data.queryEnhancement)
+                if (data.recommendedVideos) setRecommendedVideos(data.recommendedVideos)
+                if (data.recommendedSops) setRecommendedSops(data.recommendedSops)
+                if (data.videoGuidance) setVideoGuidance(data.videoGuidance)
+                setRagStreamingDone(true)
+              } else if (eventType === 'answer') {
+                setRagAnswer(data.answer)
+                setRagAnswerTarget(data.answer)
+                if (data.trust) setRagTrust(data.trust)
+              }
+            } catch {}
+            eventType = ''
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') setRagAnswer('深度思考失败：' + err.message)
+    }
+    setRagLoading(false)
+    loadRagHistory(); loadStats()
+  }
+
+  // SSE 多工具智能体
+  const handleRagAskAgent = async () => {
+    if (!ragQuestion.trim() || (supportMode && !supportChannel)) return
+    setRagLoading(true); resetRagResult()
+    setRagThinking([]); setRagThinkingExpanded(true); setRagStreamingDone(false)
+    setRagThinkStart(Date.now())
+
+    try {
+      const r = await fetch(`${API}/rag/ask-agent`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          question: ragQuestion.trim(),
+          sessionId: sessionIdRef.current,
+          productLine: effectiveProductLine,
+          productModel: effectiveProductModel
+        })
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: `HTTP ${r.status}` }))
+        throw new Error(err.error || `HTTP ${r.status}`)
+      }
+
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'answer') {
+                setRagAnswer(data.answer)
+                setRagAnswerTarget(data.answer)
+                setRagMeta(prev => ({ ...prev, answerSource: data.answerSource }))
+                if (data.trust) setRagTrust(data.trust)
+              } else if (eventType === 'done') {
+                setRagMeta(prev => ({ ...prev, agent: data.agent }))
+                if (data.qaId) setRagQaId(data.qaId)
+                applyTrustedRagFinal(data)
+                if (data.recommendedVideos) setRecommendedVideos(data.recommendedVideos)
+                if (data.recommendedSops) setRecommendedSops(data.recommendedSops)
+                if (data.videoGuidance) setVideoGuidance(data.videoGuidance)
+                setRagStreamingDone(true)
+              } else if (eventType === 'error') {
+                const errMsg = '智能体失败：' + (data.message || '')
+                setRagAnswer(errMsg); setRagAnswerTarget(errMsg)
+              } else {
+                // status / tool_call / tool_result → 思考面板
+                setRagThinking(prev => [...prev, { ...data, type: eventType, ts: Date.now() }])
+              }
+            } catch {}
+            eventType = ''
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') setRagAnswer('智能体失败：' + err.message)
+    }
+    setRagLoading(false)
+    loadRagHistory(); loadStats()
+  }
+
+  const handleRagAsk = async () => {
+    if (supportMode && !supportChannel) return
+    // ReAct / Plan-Solve / 智能路由 走 SSE 流式深度思考
+    if (ragMode === 'react' || ragMode === 'plan-solve' || ragMode === 'auto') {
+      return handleRagAskStream()
+    }
+    // 多工具智能体走独立 SSE 端点
+    if (ragMode === 'tool-agent') {
+      return handleRagAskAgent()
+    }
+
+    if (!ragQuestion.trim()) return; setRagLoading(true); resetRagResult(); setRagThinking([]); setRagStreamingDone(false)
+    try {
+      const body = {
+        question: ragQuestion.trim(),
+        sessionId: sessionIdRef.current,
+        productLine: effectiveProductLine,
+        productModel: effectiveProductModel
+      }
+      if (ragMode === 'reflection') {
+        body.reflection = true
+      }
+      if (ragReflection && ragMode !== 'reflection') body.reflection = true
+      const r = await fetch(`${API}/rag/ask`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) })
+      const d = await r.json()
+      if (d.ok) {
+        setRagAnswer(d.data.answer)
+        setRagAnswerBlocks(normalizeAnswerBlocks(d.data.answerBlocks, d.data.answer))
+        setRagTrust(d.data.trust || null)
+        setRagTraceId(d.data.traceId || null)
+        setRagSources(d.data.sources || [])
+        setQueryEnhancement(d.data.queryEnhancement || null)
+        setRagMeta({ agent: d.data.agent, router: d.data.router, memory: d.data.memory, reflection: d.data.reflection, answerSource: d.data.answerSource })
+        setRecommendedVideos(d.data.recommendedVideos || [])
+        setRecommendedSops(d.data.recommendedSops || [])
+        setVideoGuidance(d.data.videoGuidance || null)
+        setRagQaId(d.data.qaId || null)
+        setRagStreamingDone(true)
+        loadRagHistory(); loadStats()
+      } else setRagAnswer('问答失败：' + d.error)
+    } catch { setRagAnswer('网络错误') }
+    setRagLoading(false)
+  }
+
+  const handleLogout = async () => {
+    await fetch(`${API}/auth/logout`, { method: 'POST' }).catch(() => {})
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    setUser(null)
+    setActiveTab('start')
+    setInitialized(false)
+    setInitStatus([])
+    setDocuments([])
+    setSelectedDoc(null)
+    setUploadedFile(null)
+    setUploadStatus([])
+    setMdContent('')
+    setShowMdPreview(false)
+    setRagQuestion('')
+    setRagAnswer('')
+    setRagAnswerTarget('')
+    setRagAnswerDisplay('')
+    setRagAnswerBlocks([])
+    setRagTrust(null)
+    setRagTraceId(null)
+    setRagSources([])
+    setRagHistory([])
+    setRagThinking([])
+    setQueryEnhancement(null)
+    setRagMeta(null)
+    setRecommendedVideos([])
+    setRecommendedSops([])
+    setVideoGuidance(null)
+    setActiveGuidanceIndex(0)
+    setRagQaId(null)
+    setSelectedEvidenceId(null)
+    setAnswerFeedbackOutcome(null)
+    setAnswerFeedbackLoading(false)
+    setResolvedVideoIds(new Set())
+    setResolvingVideoId(null)
+    setPlayingVideo(null)
+    setStats({ translationCount: 0, ragCount: 0, docCount: 0, charCount: 0 })
+    sessionIdRef.current = 'rag-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  }
+
+  const mdHtml = useMemo(() => renderMarkdown(mdContent), [mdContent])
+
+  if (authLoading) return <div className="auth-container"><div className="auth-card">正在检查登录状态...</div></div>
+  if (!user) return <AuthPage onLogin={u => setUser(u)} />
+  if (supportMode && (supportChannelLoading || supportChannelError || !supportChannel)) return (
+    <div className="app-container">
+      <SupportExperience channel={supportChannel} loading={supportChannelLoading} error={supportChannelError} />
+    </div>
+  )
+
+  return (
+    <div className="app-container">
+      <div className="app-header">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1>科大讯飞翻译机智能助手</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 14, color: '#666' }}>{user.nickname || user.username}</span>
+            <button className="btn btn-outline btn-sm" onClick={handleLogout}>退出</button>
+          </div>
+        </div>
+        <div className="subtitle">科大讯飞硬件产品智能使用助手，支持：
+          <ul><li>🤖 自然语言问答（多策略 RAG 检索）</li><li>🎬 操作视频推荐（精准定位步骤）</li><li>📋 SOP 操作指南</li><li>📄 文档管理（PDF/Word/TXT/MD）</li><li>📊 使用统计</li></ul>
+        </div>
+      </div>
+
+      {supportMode && <SupportExperience channel={supportChannel} loading={supportChannelLoading} error={supportChannelError} />}
+
+      <div className="tab-bar">
+        {tabs.map(tab => (<div key={tab.key} className={`tab-item ${activeTab === tab.key ? 'active' : ''}`} onClick={() => { setActiveTab(tab.key); if (tab.key === 'rag') loadRagHistory() }}>{tab.icon} {tab.label}</div>))}
+      </div>
+
+      {activeTab === 'start' && (<>
+        <div className="card">
+          <div className="form-row">
+            <div className="form-group"><label>用户ID</label><input type="text" value={user.username} readOnly /></div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', paddingTop: 28 }}><button className="btn btn-primary" onClick={handleInit} disabled={initLoading} style={{ minWidth: 140 }}>{initLoading ? <><span className="spinner"></span> 初始化中...</> : '初始化助手'}</button></div>
+          </div>
+          <div className="form-group" style={{ marginTop: 8 }}><label>初始化状态</label><div className="status-box">{initStatus.length === 0 && <span style={{ color: '#999' }}>等待初始化...</span>}{initStatus.map((s, i) => (<div key={i} className="status-item">{i === initStatus.length - 1 && initLoading ? <span className="spinner"></span> : <span className="check">✅</span>}<span>{s}</span></div>))}</div></div>
+        </div>
+
+        {documents.length > 0 && (
+          <div className="card">
+            <div className="card-title">📚 可用知识库（{documents.length}）</div>
+            <div className="doc-list">
+              {documents.map(doc => {
+                const task = getDocumentJobPresentation(doc)
+                return (
+                  <div key={doc.id} className={`doc-list-item ${selectedDoc?.id === doc.id ? 'selected' : ''}`} onClick={() => handleSelectDoc(doc)}>
+                    <span className="doc-icon">{doc.file_type === 'pdf' ? '📕' : doc.file_type === 'docx' ? '📘' : doc.file_type === 'md' ? '📝' : '📄'}</span>
+                    <div className="doc-info-text">
+                      <div className="doc-name">{doc.original_name}</div>
+                      <div className={`doc-meta doc-meta--${task.tone}`} title={doc.job?.errorMessage || doc.error_message || ''}>
+                        {doc.scope === 'public' ? '🌐' : '🔒'} {documentScopeLabel(doc)} · {(doc.file_size / 1024).toFixed(1)} KB · {doc.chunk_count || 0} 个语义块 · {task.text}{doc.mineru_task_id ? ' · 🔍MinerU' : ''}
+                      </div>
+                      {task.poll && <div className="document-job-progress" aria-label={`文档任务进度：${task.progress}%`} title={task.text}><span style={{ width: `${task.progress}%` }} /></div>}
+                    </div>
+                    {canManageDocument(doc) && <div className="document-job-actions">
+                      {task.showCancel && <button className="doc-cancel-btn" onClick={(e) => handleCancelDoc(e, doc.id)} title="取消任务">⏹️</button>}
+                      {task.showRetry && <button className="doc-reparse-btn" onClick={(e) => handleRetryDoc(e, doc.id)} title="重新提交">↻</button>}
+                      {!task.poll && !task.showRetry && <button className="doc-reparse-btn" onClick={(e) => handleReparseDoc(e, doc.id)} title="重新解析">🔄</button>}
+                      <button className="doc-delete-btn" onClick={(e) => handleDeleteDoc(e, doc.id)} title="删除文档">🗑️</button>
+                    </div>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="card-title">📄 加载产品文档</div>
+          <div className="upload-area" onClick={() => fileInputRef.current?.click()}><div className="upload-icon"></div><p>点击上传文档文件（PDF / Word / TXT / MD）</p>{uploadedFile && <div className="file-name"><span>{uploadedFile.name}</span><span style={{ color: '#999' }}>{(uploadedFile.size / 1024).toFixed(1)} KB</span></div>}</div>
+          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" style={{ display: 'none' }} onChange={handleFileChange} />
+          <button className="btn btn-primary btn-full" onClick={handleLoadFile} disabled={!uploadedFile || !initialized || uploadLoading}>{uploadLoading ? <><span className="spinner"></span> 上传中...</> : '上传文档'}</button>
+          {uploadStatus.length > 0 && <div className="form-group" style={{ marginTop: 16 }}><label>上传状态</label><div className="status-box">{uploadStatus.map((s, i) => (<div key={i} className="status-item">{i === uploadStatus.length - 1 && uploadLoading ? <span className="spinner"></span> : <span className="check">✅</span>}<span>{s}</span></div>))}</div></div>}
+          {mdContent && <div style={{ marginTop: 16 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}><label style={{ margin: 0 }}>Markdown 预览</label><button className="btn btn-outline btn-sm" onClick={() => setShowMdPreview(!showMdPreview)}>{showMdPreview ? '收起' : '展开'}</button></div>{showMdPreview && <div className="md-preview" dangerouslySetInnerHTML={{ __html: mdHtml }} />}</div>}
+        </div>
+
+        {user?.role === 'admin' && !supportMode && <SupportChannelManager apiFetch={supportApiFetch} publicAppUrl={window.location.origin} />}
+      </>)}
+
+
+
+      {activeTab === 'rag' && (<>
+        <div className="card">
+          <div className="card-title">🤖 RAG 智能问答</div>
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
+            {documents.length > 0
+              ? <span style={{ color: '#52c41a' }}>📚 正在检索 {documents.length} 个可用文档（公共知识库 + 我的文档）</span>
+              : <span style={{ color: '#fa8c16' }}>⚠️ 暂无可用知识库，请联系管理员发布公共文档或自行上传</span>}
+          </div>
+          <div className="form-row" style={{ marginBottom: 12 }}>
+            <div className="form-group">
+              <label>检索策略 {!llmAvailable && <span style={{ color: '#ff4d4f', fontSize: 11 }}>（需配置 LLM）</span>}</label>
+              <select value={ragMode} onChange={e => { setRagMode(e.target.value); setRagReflection(false) }}
+                style={!llmAvailable && ragMode !== 'default' ? { borderColor: '#ff4d4f' } : {}}>
+                <option value="auto">🧠 智能路由（自动选择最优策略）</option>
+                <option value="default">默认（HyDE + 多查询融合）</option>
+                <option value="react" disabled={!llmAvailable}>ReAct（多轮推理检索）{!llmAvailable ? ' — 未配置LLM' : ''}</option>
+                <option value="plan-solve" disabled={!llmAvailable}>Plan-and-Solve（先分解再检索）{!llmAvailable ? ' — 未配置LLM' : ''}</option>
+                <option value="reflection" disabled={!llmAvailable}>Reflection（反思优化）{!llmAvailable ? ' — 未配置LLM' : ''}</option>
+                <option value="tool-agent" disabled={!llmAvailable}>🤖 多工具智能体（检索+视频+摘要）{!llmAvailable ? ' — 未配置LLM' : ''}</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                <input type="checkbox" checked={ragReflection || ragMode === 'reflection'} onChange={e => setRagReflection(e.target.checked)} disabled={ragMode === 'reflection'} style={{ width: 16, height: 16 }} />
+                答案反思优化
+              </label>
+            </div>
+          </div>
+          {ragMode !== 'default' && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, fontSize: 12, color: '#ad6800', lineHeight: 1.6 }}>
+            {ragMode === 'auto' && '🧠 智能路由：AI 自动分析问题类型，选择最优检索策略（简单题→默认，推理题→ReAct，对比题→Plan-Solve）'}
+            {ragMode === 'react' && '💡 ReAct 模式：AI 会多轮思考+检索，适合需要深度推理的复杂问题，耗时较长'}
+            {ragMode === 'plan-solve' && '💡 Plan-and-Solve 模式：AI 先分解问题再并行检索，适合多角度查询'}
+            {ragMode === 'reflection' && '💡 Reflection 模式：AI 生成回答后会自我审阅并优化，提升答案质量'}
+            {ragMode === 'tool-agent' && '🤖 多工具智能体：AI 自主决定调用知识库检索、视频推荐、文档摘要等工具，适合复杂多步骤任务'}
+          </div>}
+          <div className="form-group"><label>提问</label><textarea value={ragQuestion} onChange={e => setRagQuestion(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && ragQuestion.trim() && documents.length > 0 && !ragLoading) { e.preventDefault(); handleRagAsk() } }} placeholder="请输入您关于文档内容的问题...（Enter 提交，Shift+Enter 换行）" rows={3} /></div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleRagAsk} disabled={!ragQuestion.trim() || documents.length === 0 || ragLoading}>{ragLoading ? <><span className="spinner"></span> 跨文档检索并生成回答中...</> : '提交问题'}</button>
+            <button className="btn btn-outline btn-sm" style={{ minWidth: 90 }} onClick={async () => { await fetch(`${API}/rag/clear-session`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ sessionId: sessionIdRef.current }) }).catch(() => {}); sessionIdRef.current = 'rag-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); setRagMeta(null); alert('对话记忆已清除') }}>🧹 清除记忆</button>
+          </div>
+
+          {/* DeepSeek 风格深度思考面板 */}
+          {(ragMode === 'react' || ragMode === 'plan-solve' || ragMode === 'auto' || ragMode === 'tool-agent') && ragThinking.length > 0 && (
+            <div className="think-panel">
+              <div className="think-header" onClick={() => setRagThinkingExpanded(!ragThinkingExpanded)}>
+                <span className="think-icon">{ragStreamingDone ? '✅' : <span className="think-dot" />}</span>
+                <span className="think-title">
+                  {ragStreamingDone
+                    ? `思考完成（${ragThinkElapsed}s）`
+                    : '深度思考中...'}
+                </span>
+                <span className="think-arrow">{ragThinkingExpanded ? '▾' : '▸'}</span>
+              </div>
+              {ragThinkingExpanded && (
+                <div className="think-body">
+                  {ragThinking.map((step, i) => {
+                    if (step.type === 'reasoning') {
+                      const thoughtText = step.rawContent || step.thought || ''
+                      return (
+                        <div key={i} className="think-thought-block">
+                          <div className="think-thought-text">{thoughtText}</div>
+                        </div>
+                      )
+                    }
+                    if (step.type === 'search') {
+                      return (
+                        <div key={i} className="think-search-inline">
+                          <span className="think-search-icon">🔍</span>
+                          <span className="think-search-label">已检索</span>
+                          <span className="think-search-count">{step.count} 条相关内容</span>
+                        </div>
+                      )
+                    }
+                    if (step.type === 'status') {
+                      return <div key={i} className="think-status-text">{step.text}</div>
+                    }
+                    if (step.type === 'plan') {
+                      return (
+                        <div key={i} className="think-plan-block">
+                          <div className="think-plan-label">📋 分解为 {step.steps?.length || 0} 个子问题：</div>
+                          {(step.steps || []).map((s, j) => (
+                            <div key={j} className="think-plan-dot">· {s}</div>
+                          ))}
+                        </div>
+                      )
+                    }
+                    if (step.type === 'tool_call') {
+                      const toolNames = { search_knowledge_base: '🔍 知识库检索', search_videos: '🎬 视频检索', get_sop: '📋 SOP查询', summarize_topic: '📝 主题摘要', list_documents: '📂 文档列表' }
+                      return (
+                        <div key={i} className="think-search-inline">
+                          <span className="think-search-icon">📤</span>
+                          <span className="think-search-label">{toolNames[step.tool] || step.tool}</span>
+                          {step.args?.query && <span className="think-search-count">“{step.args.query}”</span>}
+                          {step.args?.text && <span className="think-search-count">“{step.args.text.substring(0, 20)}...”</span>}
+                          {step.args?.topic && <span className="think-search-count">“{step.args.topic}”</span>}
+                        </div>
+                      )
+                    }
+                    if (step.type === 'tool_result') {
+                      return (
+                        <div key={i} className="think-status-text" style={{ color: '#52c41a' }}>✅ {step.tool} 返回结果</div>
+                      )
+                    }
+                    return null
+                  })}
+                  {!ragStreamingDone && <span className="think-cursor">▊</span>}
+                </div>
+              )}
+            </div>
+          )}
+          {ragAnswer && <div className="rag-answer-box">
+            <div className="rag-answer-label">AI 回答</div>
+            {ragTrust && <div className={`trust-badge trust-badge--${trustBadge(ragTrust).tone}`}>
+              <strong>{trustBadge(ragTrust).label}</strong>
+              <span>{trustBadge(ragTrust).message}</span>
+            </div>}
+            {ragTrust?.level === 'refuse' && ragTrust.suggestions?.length > 0 && (
+              <div className="trust-suggestions">建议：{ragTrust.suggestions.map((item, index) => <span key={item}>{index > 0 && '；'}{item}</span>)}</div>
+            )}
+            {ragAnswerBlocks.length > 0 && !(ragAnswerTarget && ragAnswerDisplay !== ragAnswerTarget)
+              ? <TrustedAnswerReader blocks={ragAnswerBlocks} onEvidenceSelect={handleEvidenceSelect} />
+              : <AnswerReader
+                  answer={ragAnswerTarget && ragAnswerDisplay !== ragAnswerTarget ? ragAnswerDisplay : ragAnswer}
+                  streaming={Boolean(ragAnswerTarget && ragAnswerDisplay !== ragAnswerTarget)}
+                />}
+            {ragTraceId && <div className="answer-feedback" aria-label="回答是否解决问题">
+              <span>这个回答解决你的问题了吗？</span>
+              <button type="button" className={answerFeedbackOutcome === 'solved' ? 'selected' : ''} disabled={answerFeedbackLoading} onClick={() => handleAnswerFeedback('solved')}>已解决</button>
+              <button type="button" className={answerFeedbackOutcome === 'unsolved' ? 'selected' : ''} disabled={answerFeedbackLoading} onClick={() => handleAnswerFeedback('unsolved')}>未解决</button>
+              {answerFeedbackOutcome && <em>{answerFeedbackOutcome === 'solved' ? '已记录，感谢反馈。' : '已记录，我们会把这类问题汇总为待补资料。'}</em>}
+            </div>}
+          </div>}
+
+          {/* 查询增强与策略信息 — 所有模式均显示 */}
+          {queryEnhancement && <div style={{ marginTop: 12, padding: '10px 14px', background: '#f6f8ff', borderRadius: 8, fontSize: 12, color: '#555', lineHeight: 1.8 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>🔍 查询增强策略</div>
+              {queryEnhancement.originalQuery && <div>📝 原始查询：{queryEnhancement.originalQuery}</div>}
+              {queryEnhancement.rewrittenQuery && <div>✏️ 重写查询：<span style={{ color: '#1677ff' }}>{queryEnhancement.rewrittenQuery}</span></div>}
+              {queryEnhancement.hydeDoc && <div>📄 HyDE假设文档：<span style={{ color: '#888', fontSize: 11 }}>{queryEnhancement.hydeDoc}</span></div>}
+              {queryEnhancement.expandedQueries?.length > 0 && <div>🔀 扩展查询（{queryEnhancement.expandedQueries.length}个）：{queryEnhancement.expandedQueries.slice(0, 4).map((q, i) => <span key={i} style={{ display: 'inline-block', background: '#e6f4ff', padding: '1px 6px', borderRadius: 4, margin: '2px 4px', fontSize: 11 }}>{q}</span>)}</div>}
+              {queryEnhancement.totalQueries && <div>📊 共生成 <b>{queryEnhancement.totalQueries}</b> 个查询 | 策略：{queryEnhancement.strategies?.join('、')}</div>}
+              {!queryEnhancement.totalQueries && queryEnhancement.strategies && <div>📊 策略：{queryEnhancement.strategies?.join('、')}</div>}
+            </div>}
+          {/* Agent 策略信息（ReAct/Plan-Solve 模式也显示） */}
+          {ragMeta && (ragMeta.agent || ragMeta.reflection || ragMeta.answerSource || ragMeta.router || ragMeta.memory) && <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0f5ff', borderRadius: 8, fontSize: 12, color: '#555', lineHeight: 1.8 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>🧠 高级策略信息</div>
+              {ragMeta.memory?.resolved && <div>💬 对话记忆：指代消解 “{ragMeta.memory.originalQuestion}” → <b style={{ color: '#722ed1' }}>“{ragMeta.memory.resolvedQuestion}”</b></div>}
+              {ragMeta.router && <div>🧭 智能路由：<b>{ragMeta.router.mode}</b>（{ragMeta.router.reason}）<span style={{ color: '#999', marginLeft: 6 }}>— {ragMeta.router.routedBy === 'rule' ? '规则分类' : ragMeta.router.routedBy === 'llm' ? 'LLM 分类' : '手动指定'}</span></div>}
+              {ragMeta.answerSource && <div>📌 回答来源：<span style={{ color: '#1677ff' }}>{ragMeta.answerSource}</span></div>}
+              {ragMeta.agent && <>
+                <div>🔧 策略模式：<b>{ragMeta.agent.mode}</b>{ragMeta.agent.fallback && <span style={{ color: '#fa8c16' }}>（已回退，原因：{ragMeta.agent.error}）</span>}</div>
+                {ragMeta.agent.rounds && <div>🔄 推理轮次：{ragMeta.agent.rounds} 轮</div>}
+                {ragMeta.agent.plan && <div>📋 问题分解：{ragMeta.agent.plan.length} 步</div>}
+                {ragMeta.agent.trace && ragMeta.agent.trace.length > 0 && <div style={{ marginTop: 4 }}>🔍 推理过程：{ragMeta.agent.trace.map((t, i) => <div key={i} style={{ marginLeft: 12, color: '#888' }}>第{t.round}轮 → {t.searchQuery || '完成'}{t.resultCount !== undefined ? `（命中 ${t.resultCount} 条）` : ''}</div>)}</div>}
+                {ragMeta.agent.steps && <div>🔄 执行步骤：{ragMeta.agent.steps} 步</div>}
+                {ragMeta.agent.toolCalls?.length > 0 && <div style={{ marginTop: 4 }}>🛠️ 工具调用：{ragMeta.agent.toolCalls.map((tc, i) => <div key={i} style={{ marginLeft: 12, color: '#888' }}>{tc.tool}({Object.values(tc.args || {}).map(v => typeof v === 'string' ? v.substring(0, 30) : v).join(', ')})</div>)}</div>}
+              </>}
+              {ragMeta.reflection?.applied && <div style={{ color: '#52c41a' }}>✅ 反思优化已应用（{ragMeta.reflection.originalLength} → {ragMeta.reflection.improvedLength} 字）</div>}
+              {ragMeta.reflection?.applied === false && <div style={{ color: '#fa8c16' }}>⚠️ 反思优化未生效：{ragMeta.reflection.error}</div>}
+            </div>}
+          {ragSources.length > 0 && <div className="rag-sources-box"><div className="lang-label">回答依据</div>{ragSources.map((src, i) => (<div id={`rag-source-${src.evidenceId || i}`} key={src.evidenceId || i} className={`rag-source-item ${selectedEvidenceId === src.evidenceId ? 'rag-source-item--selected' : ''}`}><span className="source-num">[{src.evidenceId || i + 1}]</span><SourceExcerpt source={src} /><div className="source-score"><span>{src.docName ? `📄 ${src.docName}` : ''}</span>{src.sourceType === 'sop' && <span style={{ marginLeft: 8 }}>📋 标准流程</span>}{src.productModel && <span style={{ marginLeft: 8 }}>适用：{src.productModel}</span>}{src.supportedClaims?.length > 0 && <span className="source-claim">支持本回答中的 {src.supportedClaims.length} 项内容</span>}</div></div>))}</div>}
+
+          {/* 只展示有可靠问题匹配的操作视频 */}
+          {activeGuidanceVideo && (
+            <section className="video-recommendations" aria-label="推荐操作视频">
+              <div className="video-recommendations-heading">
+                <div><span aria-hidden="true">🎬</span> 视频解决方案</div>
+                <span>{videoGuidance?.diagnosis?.label ? `已识别：${videoGuidance.diagnosis.label}` : '按问题相关度推荐'}</span>
+              </div>
+              {videoGuidance?.diagnosis?.evidence?.length > 0 && <p className="video-diagnosis-note">根据“{videoGuidance.diagnosis.evidence.slice(0, 2).join('、')}”判断，先从最可能解决当前问题的方案开始。</p>}
+              <div className="video-recommendation-grid video-guidance-grid">
+                <VideoRecommendationCard
+                  key={activeGuidanceVideo.id}
+                  video={activeGuidanceVideo}
+                  onPlay={(selectedVideo) => { setVideoLoadError(false); setPlayingVideo(selectedVideo) }}
+                  onResolve={handleVideoResolve}
+                  onTryNext={handleTryNextVideo}
+                  hasNext={activeGuidanceIndex < guidanceVideos.length - 1}
+                  isResolving={resolvingVideoId === activeGuidanceVideo.id}
+                  isResolved={resolvedVideoIds.has(activeGuidanceVideo.id)}
+                />
+              </div>
+            </section>
+          )}
+
+          {/* 推荐SOP操作指南 */}
+          {recommendedSops.length > 0 && (
+            <div style={{ marginTop: 12, padding: '12px 14px', background: '#fff7e6', borderRadius: 8, border: '1px solid #ffd591' }}>
+              <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>📋 相关操作指南（SOP）</div>
+              {recommendedSops.map(s => (
+                <div key={s.id} style={{ padding: '8px 10px', background: '#fff', borderRadius: 6, marginBottom: 6, border: '1px solid #ffe7ba' }}>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>{s.title}</div>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    {s.difficulty === 'easy' ? '🟢 简单' : s.difficulty === 'medium' ? '🟡 中等' : '🔴 困难'}
+                    {s.estimated_duration ? ` · 约${s.estimated_duration}秒` : ''}
+                    {s.completion_check ? ` · 完成标志：${s.completion_check}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="card"><div className="card-title">📋 问答历史</div>{ragHistory.length === 0 ? <div style={{ textAlign: 'center', color: '#999', padding: '30px 0' }}>暂无问答记录</div> : <div className="rag-history-list">{ragHistory.slice(0, 1).map(item => (<div key={item.id} className="rag-history-item"><div className="rag-q"><span className="rag-q-label">Q</span><span>{item.question}</span></div><div className="rag-a"><span className="rag-a-label">A</span><span>{item.answer.substring(0, 100)}{item.answer.length > 100 ? '...' : ''}</span></div><div className="rag-meta">{item.original_name || '跨文档检索'} · {new Date(item.created_at).toLocaleString('zh-CN')}</div></div>))}</div>}</div>
+      </>)}
+
+
+
+      {activeTab === 'stats' && (<>
+        <div className="stats-grid">
+          <div className="stat-card green"><div className="stat-value">{stats.ragCount}</div><div className="stat-label">智能问答次数</div></div>
+          <div className="stat-card orange"><div className="stat-value">{documents.length}</div><div className="stat-label">知识库文档</div></div>
+          <div className="stat-card" style={{ background: 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)' }}><div className="stat-value">{recommendedVideos.length}</div><div className="stat-label">推荐视频</div></div>
+        </div>
+        <div className="card"><div className="card-title">ℹ️ 系统信息</div><div style={{ fontSize: 14, lineHeight: 2 }}>
+          <div>产品定位：科大讯飞硬件产品智能使用助手</div>
+          <div>RAG 引擎：BM25 + 向量语义检索 + 多因子重排 + LLM 增强生成</div>
+          <div>视频推荐：关键词匹配 + 短视频优先（20s~5min）</div>
+          <div>数据库：MySQL（持久化存储）</div>
+          <div>支持文档格式：PDF / Word / TXT / Markdown</div>
+          <div>用户：{user.username}（{user.nickname}）</div>
+        </div></div>
+      </>)}
+
+      {/* 视频播放弹窗 */}
+      {playingVideo && (
+        <div onClick={() => setPlayingVideo(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#000', borderRadius: 12, maxWidth: 820, width: '100%', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,.5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: '#111', color: '#fff' }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>🎬 {playingVideo.title}</div>
+              <button onClick={() => setPlayingVideo(null)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            </div>
+            <video src={playingVideo.video_url} controls autoPlay onError={() => setVideoLoadError(true)} style={{ width: '100%', display: 'block', maxHeight: '70vh', background: '#000' }} />
+            {videoLoadError && (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: '#ff7875', fontSize: 13, background: '#000' }}>
+                ⚠️ 视频加载失败，请检查网络连接后重试
+              </div>
+            )}
+            <div style={{ padding: '10px 16px', background: '#111', color: '#aaa', fontSize: 12 }}>
+              {playingVideo.duration_seconds ? `⏱ 时长 ${playingVideo.duration_seconds}秒` : ''} {playingVideo.category ? `· ${playingVideo.category}` : ''} {playingVideo.product_model ? `· ${playingVideo.product_model}` : ''} {playingVideo.resolve_count > 0 ? `· ✅ ${playingVideo.resolve_count} 人标记已解决` : ''}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

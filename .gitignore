@@ -1,0 +1,23 @@
+node_modules/
+dist/
+reports/
+.env
+/.env.compose
+debug.log
+.arts/
+.codeartsdoer/
+.worktrees/
+uploads/
+
+# 本地调试与一次性修补产物
+browser-*.png
+step*.png
+video-player-working.png
+_patch*.cjs
+_fix*.cjs
+_check*.cjs
+_test*.cjs
+
+# Office 临时文件
+~$*.docx
+~$*.xlsx

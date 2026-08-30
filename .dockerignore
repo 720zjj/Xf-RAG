@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.worktrees
+.superpowers
+reports
+uploads
+backups
+*.log
+
+.env*
+!.env.example
+!deploy/.env.compose.example

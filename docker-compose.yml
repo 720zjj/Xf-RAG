@@ -1,0 +1,124 @@
+name: iflytek-translator
+
+x-app-image: &app-image
+  build:
+    context: .
+  image: iflytek-translator-app:local
+
+x-app-environment: &app-environment
+  NODE_ENV: ${NODE_ENV:-development}
+  PORT: 3000
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_NAME: ${DB_NAME:-iflytek_translator}
+  DB_USER: ${MYSQL_APP_USER}
+  DB_PASSWORD: ${MYSQL_APP_PASSWORD}
+  REDIS_URL: redis://redis:6379
+  UPLOAD_DIR: /data/uploads
+  MODEL_CACHE_DIR: /data/models
+  PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+  JWT_SECRET: ${JWT_SECRET}
+  ADMIN_USERNAMES: ${ADMIN_USERNAMES:-admin}
+  ADMIN_REGISTRATION_KEY: ${ADMIN_REGISTRATION_KEY:-}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+  MAX_DOCUMENT_UPLOAD_MB: ${MAX_DOCUMENT_UPLOAD_MB:-20}
+  MAX_VIDEO_UPLOAD_MB: ${MAX_VIDEO_UPLOAD_MB:-100}
+  MINERU_API_KEY: ${MINERU_API_KEY:-}
+  MINERU_API_URL: ${MINERU_API_URL:-https://mineru.net}
+  MAX_MINERU_ZIP_MB: ${MAX_MINERU_ZIP_MB:-200}
+  MAX_MINERU_EXTRACTED_MB: ${MAX_MINERU_EXTRACTED_MB:-300}
+  DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
+  DOCUMENT_JOB_MAX_ATTEMPTS: ${DOCUMENT_JOB_MAX_ATTEMPTS:-3}
+  DOCUMENT_QUEUE_TIMEOUT_MS: ${DOCUMENT_QUEUE_TIMEOUT_MS:-5000}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  EMBED_MODEL: ${EMBED_MODEL:-Xenova/bge-small-zh-v1.5}
+  HF_MIRROR: ${HF_MIRROR:-https://hf-mirror.com}
+  MCP_USER_ID: ${MCP_USER_ID:-1}
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-iflytek_translator}
+      MYSQL_USER: ${MYSQL_APP_USER}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  migrate:
+    <<: *app-image
+    command: ["node", "server/migrate.js"]
+    restart: "no"
+    environment:
+      <<: *app-environment
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api:
+    <<: *app-image
+    command: ["node", "--max-old-space-size=8192", "server/index.js"]
+    restart: unless-stopped
+    environment: *app-environment
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads-data:/data/uploads
+      - model-cache:/data/models
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/api/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  worker:
+    <<: *app-image
+    command: ["node", "--max-old-space-size=8192", "server/workers/documentWorker.js"]
+    restart: unless-stopped
+    environment: *app-environment
+    volumes:
+      - uploads-data:/data/uploads
+      - model-cache:/data/models
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads-data:
+  model-cache:
