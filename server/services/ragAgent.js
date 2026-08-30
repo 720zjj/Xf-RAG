@@ -5,7 +5,7 @@
  * - Reflection：自我反思优化答案
  */
 
-import { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable } from './langchainLLM.js'
+import { callLLM, callLLMStream, isAnyLLMAvailable } from './langchainLLM.js'
 
 /** 统一的 LLM 可用性检查（含本地模型回退） */
 function ensureLLM() {
@@ -125,7 +125,7 @@ export async function reactRetrieve(question, retrieveFn, { maxRounds = 2, onPro
       let retrieved
       try {
         retrieved = await retrieveFn(searchQuery)
-      } catch (e) {
+      } catch {
         retrieved = []
       }
       trace[trace.length - 1].resultCount = retrieved.length

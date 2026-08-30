@@ -207,7 +207,7 @@ export async function findVideoRecommendations(question, filters = {}) {
 
   let sql = `SELECT id, title, description, category, duration_seconds, video_url, thumbnail_url,
                     product_line, product_model, tags, view_count, resolve_count
-             FROM videos WHERE publish_status = 'published'`
+             FROM videos WHERE publish_status = 'published' AND review_status = 'approved'`
   const params = []
   if (filters.productLine) {
     sql += ' AND (product_line = ? OR product_line = "翻译机" OR product_line = "")'

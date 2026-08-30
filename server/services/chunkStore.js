@@ -327,7 +327,7 @@ export async function loadUserChunks(userId, { forceRefresh = false } = {}) {
   const metadata = []
   for (const r of rows) {
     contents.push(r.content)
-    let vec = null
+    let vec
     try { vec = JSON.parse(r.embedding) } catch { vec = null }
     embeddings.push(vec)
     sources.push({ docId: r.document_id, docName: r.original_name })

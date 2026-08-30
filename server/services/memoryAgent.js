@@ -20,7 +20,7 @@ const sessions = new Map()
 const MAX_TURNS = 8          // 每个会话最多保留 8 轮
 const SESSION_TTL = 30 * 60 * 1000  // 30 分钟过期
 
-/** 定期清理过期会话（每 10 分钟） */
+/** 定期清理过期会话（每 10 分钟）；unref 避免后台定时器阻止进程退出 */
 setInterval(() => {
   const now = Date.now()
   for (const [id, session] of sessions) {
@@ -28,7 +28,7 @@ setInterval(() => {
       sessions.delete(id)
     }
   }
-}, 10 * 60 * 1000)
+}, 10 * 60 * 1000).unref()
 
 // ─── 核心 API ────────────────────────────────────────────────────────────────
 

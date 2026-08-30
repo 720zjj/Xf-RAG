@@ -37,5 +37,55 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run db:migrate
+      - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 Compose 模板配置
+        run: docker compose --env-file deploy/.env.compose.example config --quiet
+
+      - name: 生成 CI 部署配置
+        run: |
+          cp deploy/.env.compose.example .env.compose
+          sed -i \
+            -e 's/replace-with-local-root-password/ci-root-password/' \
+            -e 's/replace-with-local-app-password/ci-app-password/' \
+            -e 's/replace-with-a-new-32-plus-character-production-jwt-secret/ci-jwt-secret-0123456789-0123456789/' \
+            .env.compose
+
+      - name: 构建镜像
+        run: docker compose --env-file .env.compose build
+
+      - name: 启动服务
+        run: docker compose --env-file .env.compose up -d
+
+      - name: 等待 API 就绪并探活
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/live || true)
+            if [ "$code" = "200" ]; then
+              echo "API 已就绪"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API 未在 120 秒内就绪"
+          docker compose --env-file .env.compose ps
+          docker compose --env-file .env.compose logs --tail 100 api worker migrate
+          exit 1
+
+      - name: 验证健康检查与迁移结果
+        run: |
+          docker compose --env-file .env.compose ps
+          curl -sf http://127.0.0.1:3000/api/health
+          docker compose --env-file .env.compose run --rm migrate
+
+      - name: 停止服务
+        if: always()
+        run: docker compose --env-file .env.compose down

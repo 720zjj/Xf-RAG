@@ -74,7 +74,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     sop.common_errors = safeParse(sop.common_errors)
 
     // 查找关联视频
-    const [videos] = await pool.query('SELECT id, title, duration_seconds, video_url, thumbnail_url FROM videos WHERE source_sop_id = ? AND publish_status = "published"', [sop.id])
+    const [videos] = await pool.query('SELECT id, title, duration_seconds, video_url, thumbnail_url FROM videos WHERE source_sop_id = ? AND publish_status = "published" AND review_status = "approved"', [sop.id])
     sop.related_videos = videos
 
     res.json({ ok: true, data: sop })
@@ -125,7 +125,7 @@ router.post('/', authMiddleware, async (req, res) => {
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const { title, category, prerequisites, warnings, steps, completionCheck, commonErrors, difficulty, estimatedDuration, reviewStatus } = req.body
-    const [existing] = await pool.query('SELECT id, created_by FROM sops WHERE id = ?', [req.params.id])
+    const [existing] = await pool.query('SELECT id, created_by, review_status FROM sops WHERE id = ?', [req.params.id])
     if (!existing.length) return res.status(404).json({ ok: false, error: 'SOP不存在' })
     if (!canManage(req, existing[0])) return res.status(403).json({ ok: false, error: '无权修改该SOP' })
     if (reviewStatus !== undefined && !isAdmin(req)) {
@@ -137,6 +137,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
     if (reviewStatus !== undefined && !['draft', 'pending', 'approved', 'rejected'].includes(reviewStatus)) return res.status(400).json({ ok: false, error: '非法审核状态' })
     const fields = []
     const params = []
+    const contentChanged = [title, category, prerequisites, warnings, steps, completionCheck, commonErrors, difficulty, estimatedDuration].some(value => value !== undefined)
+    const reviewReset = existing[0].review_status === 'approved' && contentChanged && reviewStatus === undefined
 
     if (title !== undefined) { fields.push('title = ?'); params.push(title) }
     if (category !== undefined) { fields.push('category = ?'); params.push(category) }
@@ -148,13 +150,14 @@ router.put('/:id', authMiddleware, async (req, res) => {
     if (difficulty !== undefined) { fields.push('difficulty = ?'); params.push(difficulty) }
     if (estimatedDuration !== undefined) { fields.push('estimated_duration = ?'); params.push(estimatedDuration) }
     if (reviewStatus !== undefined) { fields.push('review_status = ?'); params.push(reviewStatus) }
+    if (reviewReset) { fields.push('review_status = ?'); params.push('pending') }
 
     if (fields.length === 0) return res.status(400).json({ ok: false, error: '无更新字段' })
 
     params.push(req.params.id)
     const [result] = await pool.query(`UPDATE sops SET ${fields.join(', ')} WHERE id = ?`, params)
     if (!result.affectedRows) return res.status(404).json({ ok: false, error: 'SOP不存在' })
-    res.json({ ok: true })
+    res.json({ ok: true, reviewReset })
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message })
   }

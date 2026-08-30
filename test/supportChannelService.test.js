@@ -8,14 +8,6 @@ import {
   parsePublicAppUrl
 } from '../server/services/supportChannelService.js'
 
-function createResponseRecorder() {
-  return {
-    statusCode: 200,
-    body: null,
-    status(code) { this.statusCode = code; return this },
-    json(value) { this.body = value; return this }
-  }
-}
 
 test('二维码入口编号使用 URL 安全的至少 128 bit 随机值', () => {
   const code = generateChannelCode(size => Buffer.alloc(size, 7))

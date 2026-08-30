@@ -21,3 +21,29 @@ _test*.cjs
 # Office 临时文件
 ~$*.docx
 ~$*.xlsx
+
+# IDE 与代码索引
+.codegraph/
+.idea/
+
+# 发布快照与临时目录
+.release-snapshot/
+.tmp/
+temp_resume_review/
+
+# 运行时日志
+server-runtime*.log
+
+# 本地脚本与草稿
+_rebuild.ps1
+day01.py
+start_backend.bat
+start_frontend.bat
+src/_drawFrameFragment.txt
+src/_sopVideoRenderer_new.js
+
+# 个人材料（周报 docx、截图与备份文档）
+report/*.docx
+report/screenshots/
+report/2026-W05-weekly.md
+docs/2026-08-28-rag-evaluation-baseline-pre-v4-backup.md

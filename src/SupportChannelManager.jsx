@@ -113,7 +113,7 @@ export function SupportChannelManager({ apiFetch, publicAppUrl }) {
   }
 
   const handleToggle = channel => runAction(channel.id, async () => {
-    const nextActive = !Boolean(channelValue(channel, 'isActive', 'is_active'))
+    const nextActive = !channelValue(channel, 'isActive', 'is_active')
     await readApiResponse(await apiFetch(`/api/support-channels/${channel.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

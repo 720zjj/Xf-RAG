@@ -64,6 +64,20 @@ test('快速路径直接将审核 SOP 格式化为操作答案', () => {
   assert.match(answer, /适用产品和版本：翻译机4\.0。/)
 })
 
+test('快速路径把对象式 SOP 步骤渲染成操作和补充说明', () => {
+  const answer = formatSopAnswer({
+    ...sops[0],
+    steps: [
+      { step: 1, action: '从主屏幕向下滑动，打开快捷设置面板', detail: '也可进入 设置 > WLAN' },
+      { step: 2, action: '点击 WLAN 开关，开启 WiFi 功能', detail: '图标变为蓝色表示已开启' }
+    ]
+  })
+
+  assert.match(answer, /1\. 从主屏幕向下滑动，打开快捷设置面板（也可进入 设置 > WLAN）/)
+  assert.match(answer, /2\. 点击 WLAN 开关，开启 WiFi 功能（图标变为蓝色表示已开启）/)
+  assert.doesNotMatch(answer, /\[object Object\]/)
+})
+
 test('命中 SOP 时生成无需思考的直接响应', async () => {
   const result = await resolveSopFastPath('如何连接 WiFi？', { productLine: '翻译机', productModel: '翻译机4.0' }, {
     findSop: async () => ({ intent: { eligible: true, reason: '简单操作问题，优先查询标准 SOP' }, sop: sops[0] })

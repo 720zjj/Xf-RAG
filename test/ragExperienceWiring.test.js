@@ -11,10 +11,18 @@ test('所有问答链路统一使用增强视频推荐并返回 qaId', () => {
   assert.match(source, /findVideoRecommendations/)
   assert.match(source, /buildVideoGuidance/)
   assert.match(source, /videoGuidance/)
-  assert.match(source, /buildSourceReferences/)
+  assert.match(source, /runTrustedRagRequest/)
   assert.match(source, /qaId/)
   assert.match(source, /recommendedVideos/)
   assert.match(toolAgentSource, /findVideoRecommendations/)
+})
+
+test('SOP 快速路径也返回视频推荐，不能只返回文字步骤', () => {
+  const source = read('../server/routes/rag.js')
+
+  assert.match(source, /findFastPathVideoRecommendations\(question, fastPathFilters\)/)
+  assert.match(source, /recommendedVideos: recommendedVideos\.length > 0 \? recommendedVideos : undefined/)
+  assert.match(source, /videoGuidance: videoGuidance \|\| undefined/)
 })
 
 test('回答提示词要求使用无 Markdown 符号的中文段落标签', () => {
@@ -45,6 +53,9 @@ test('前端使用结构化答案阅读器和视频解决反馈', () => {
   assert.match(source, /\/rag\/feedback/)
   assert.match(source, /已解决/)
   assert.match(source, /未解决/)
+  assert.match(source, /getSourcePresentation/)
+  assert.match(source, /查看原文/)
+  assert.match(source, /检索详情/)
 })
 
 test('所有前端问答请求保留产品过滤契约', () => {

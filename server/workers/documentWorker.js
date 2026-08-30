@@ -1,7 +1,7 @@
 import dotenv from 'dotenv'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { Worker } from 'bullmq'
 import { DOCUMENT_QUEUE_NAME, createRedisConnection } from '../queues/documentQueue.js'
 import { assertRuntimeConfig } from '../config/runtimeConfig.js'

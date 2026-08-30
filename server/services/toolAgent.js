@@ -52,7 +52,7 @@ function getAgentLLM() {
  * @param {Array} ctx.chunkSources - 文档块来源
  */
 function createTools(ctx) {
-  const { retrieveFn, userId, allChunks, chunkSources } = ctx
+  const { retrieveFn, userId } = ctx
 
   // 工具 1：知识库检索
   const searchKnowledgeBase = tool(

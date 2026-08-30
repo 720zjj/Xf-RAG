@@ -31,7 +31,7 @@ import pool from './db.js'
 import { loadUserChunks } from './services/chunkStore.js'
 import {
   BM25Index, SemanticIndex, rerank,
-  generateAnswer, generateAnswerLLM, generateHyDE, generateHyDEPassage,
+  generateAnswer, generateAnswerLLM, generateHyDE,
   expandQueries, isLLMEnabled
 } from './services/ragEngine.js'
 import { callLLM } from './services/langchainLLM.js'
@@ -283,7 +283,7 @@ server.tool(
   async ({ query, productModel }) => {
     try {
       let sql = `SELECT id, title, description, category, duration_seconds, video_url, product_model, view_count, resolve_count
-        FROM videos WHERE publish_status = 'published' AND (title LIKE ? OR description LIKE ?)`
+        FROM videos WHERE publish_status = 'published' AND review_status = 'approved' AND (title LIKE ? OR description LIKE ?)`
       const params = [`%${query}%`, `%${query}%`]
       if (productModel) { sql += ' AND (product_model = ? OR product_model = "")'; params.push(productModel) }
       sql += ' ORDER BY (duration_seconds BETWEEN 20 AND 300) DESC, resolve_count DESC LIMIT 5'

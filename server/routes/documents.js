@@ -159,7 +159,7 @@ router.get('/list', authMiddleware, async (req, res) => {
       [req.user.id, req.user.id, ...scope.params]
     )
     res.json({ ok: true, data: rows.map(decorateDocument) })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '获取文档列表失败' })
   }
 })
@@ -170,7 +170,7 @@ router.get('/:id/job', authMiddleware, async (req, res) => {
     const job = await getLatestDocumentJob({ userId: req.user.id, documentId: req.params.id })
     if (!job) return res.status(404).json({ ok: false, error: '文档任务不存在' })
     res.json({ ok: true, data: formatJob(job) })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '获取任务状态失败' })
   }
 })
@@ -205,7 +205,7 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
       ok: true,
       data: { document: result.document, job: formatJob(result.job), pending: result.pending }
     })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '取消任务失败' })
   }
 })
@@ -225,7 +225,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     )
     if (rows.length === 0) return res.status(404).json({ ok: false, error: '文档不存在' })
     res.json({ ok: true, data: decorateDocument(rows[0]) })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '获取文档详情失败' })
   }
 })
@@ -256,7 +256,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       }
     }
     res.json({ ok: true })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '删除文档失败' })
   }
 })
@@ -282,7 +282,7 @@ router.get('/:id/images', authMiddleware, async (req, res) => {
         size: fs.statSync(path.join(imageDir, filename)).size
       }))
     res.json({ ok: true, data: images })
-  } catch (error) {
+  } catch {
     res.status(500).json({ ok: false, error: '获取文档图片失败' })
   }
 })

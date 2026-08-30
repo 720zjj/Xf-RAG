@@ -2,12 +2,16 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import pool from '../db.js'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, isAdmin } from '../middleware/auth.js'
 import { buildKnowledgeScope } from '../services/knowledgeAccess.js'
 
 const router = Router()
 const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads')
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'])
+
+export function isVideoAssetFilename(filename) {
+  return typeof filename === 'string' && /^[a-zA-Z0-9_-]+\.webm$/.test(filename)
+}
 
 router.get('/images/:docId/:filename', authMiddleware, async (req, res) => {
   try {
@@ -40,20 +44,29 @@ router.get('/images/:docId/:filename', authMiddleware, async (req, res) => {
   }
 })
 
-// 视频内容面向已登录用户；原始文档不再通过静态目录公开。
-router.use('/videos', authMiddleware, expressStaticSafe(path.join(uploadDir, 'videos')))
+// 已发布视频面向已登录用户；草稿仅管理员可读，避免猜测文件名直接访问未审核素材。
+router.get('/videos/:filename', authMiddleware, async (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename)
+    if (!filename || filename !== req.params.filename || !isVideoAssetFilename(filename)) return res.status(404).end()
 
-function expressStaticSafe(root) {
-  return (req, res, next) => {
-    const filename = path.basename(req.path)
-    if (!filename || filename !== req.path.replace(/^\//, '') || path.extname(filename).toLowerCase() !== '.webm') {
-      return res.status(404).end()
+    if (!isAdmin(req)) {
+      const [rows] = await pool.query(
+        "SELECT id FROM videos WHERE video_url = ? AND review_status = 'approved' AND publish_status = 'published' LIMIT 1",
+        [`/uploads/videos/${filename}`]
+      )
+      if (!rows.length) return res.status(404).end()
     }
-    const filePath = path.resolve(root, filename)
-    if (!filePath.startsWith(path.resolve(root) + path.sep) || !fs.existsSync(filePath)) return res.status(404).end()
+
+    const videoDir = path.resolve(uploadDir, 'videos')
+    const filePath = path.resolve(videoDir, filename)
+    if (!filePath.startsWith(videoDir + path.sep) || !fs.existsSync(filePath)) return res.status(404).end()
     res.setHeader('Cache-Control', 'private, max-age=3600')
     res.sendFile(filePath)
+  } catch (err) {
+    console.error('[uploads/video]', err)
+    res.status(500).json({ ok: false, error: '读取视频失败' })
   }
-}
+})
 
 export default router

@@ -8,6 +8,9 @@ import { normalizeAnswerBlocks, sourceIdSet, trustBadge } from './trustedAnswerP
 import { getSupportChannelCode } from './supportChannelLocation.js'
 import { SupportExperience } from './SupportExperience.jsx'
 import { SupportChannelManager } from './SupportChannelManager.jsx'
+import { getSourcePresentation } from './sourcePresentation.js'
+import { buildRagInsight } from './ragInsightPresentation.js'
+import SopVideoStudio from './SopVideoStudio.jsx'
 
 const API = '/api'
 
@@ -91,26 +94,110 @@ function TrustedAnswerReader({ blocks, onEvidenceSelect }) {
   )
 }
 
-function SourceExcerpt({ source }) {
-  const textWithoutImages = String(source.text || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+function SourceExcerpt({ source, index }) {
+  const { section, body, preview } = getSourcePresentation(source.text)
+  const bodyWithoutImages = body.replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  const images = Array.isArray(source.images) ? source.images.slice(0, 2) : []
   return (
     <div className="source-content">
-      <div className="source-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(textWithoutImages) }} />
-      {source.images?.length > 0 && (
+      <div className="source-card-header">
+        <span className="source-num">{index + 1}</span>
+        <div>
+          <div className="source-document-name">📄 {source.docName || '知识库文档'}</div>
+          {section && <div className="source-section-path">📍 {section}</div>}
+        </div>
+      </div>
+      {preview && <p className="source-preview">{preview}</p>}
+      {images.length > 0 && (
         <div className="source-images" aria-label="原文图片">
-          {source.images.map((image, index) => (
+          {images.map((image, imageIndex) => (
             <img
               className="source-image"
               key={image}
               src={image}
-              alt={`参考来源图片 ${index + 1}`}
+              alt={`参考来源图片 ${imageIndex + 1}`}
               loading="lazy"
               onError={event => { event.currentTarget.hidden = true }}
             />
           ))}
         </div>
       )}
+      {bodyWithoutImages && (
+        <details className="source-original">
+          <summary>查看原文</summary>
+          <div className="source-original-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(bodyWithoutImages) }} />
+        </details>
+      )}
+      <details className="source-retrieval-details">
+        <summary>检索详情</summary>
+        <div className="source-metrics">
+          <span>综合相关度 {source.score ?? '-'}</span>
+          <span>关键词匹配 {source.bm25Score ?? '-'}</span>
+          {source.factors?.semantic !== undefined && <span>语义匹配 {source.factors.semantic}</span>}
+          {source.factors?.coverage !== undefined && <span>词覆盖 {source.factors.coverage}</span>}
+          {source.factors?.phraseMatch && <span>精确短语命中</span>}
+        </div>
+      </details>
     </div>
+  )
+}
+
+function RetrievalInsight({ queryEnhancement, ragMeta }) {
+  const insight = buildRagInsight({ queryEnhancement, ragMeta })
+  const details = insight.technicalDetails
+  if (!insight.visible) return null
+
+  return (
+    <section className="rag-insight-panel" aria-label="本次检索说明">
+      <div className="rag-insight-header">
+        <div className="rag-insight-heading">
+          <span className="rag-insight-icon" aria-hidden="true">🔎</span>
+          <div>
+            <h3>本次检索说明</h3>
+            <p>{insight.summary}</p>
+          </div>
+        </div>
+        <span className="rag-insight-status">已完成</span>
+      </div>
+
+      {insight.strategyLabels.length > 0 && (
+        <div className="rag-insight-methods">
+          <span className="rag-insight-methods-label">本次采用</span>
+          <div className="rag-insight-chips">
+            {insight.strategyLabels.map(label => <span className="rag-insight-chip" key={label}>{label}</span>)}
+          </div>
+        </div>
+      )}
+
+      {(insight.memoryMessage || insight.reflectionMessage) && (
+        <div className="rag-insight-notes">
+          {insight.memoryMessage && <p>💬 {insight.memoryMessage}</p>}
+          {insight.reflectionMessage && <p>✓ {insight.reflectionMessage}</p>}
+        </div>
+      )}
+
+      {insight.hasTechnicalDetails && (
+        <details className="rag-insight-details">
+          <summary>
+            <span>查看检索过程</span>
+            <span className="rag-insight-details-hint">查询理解、查找范围与处理步骤</span>
+          </summary>
+          <div className="rag-insight-details-body">
+            {details.originalQuery && <div><span>本次问题</span><p>{details.originalQuery}</p></div>}
+            {details.rewrittenQuery && details.rewrittenQuery !== details.originalQuery && <div><span>系统理解为</span><p>{details.rewrittenQuery}</p></div>}
+            {details.totalQueries && <div><span>查找范围</span><p>围绕问题从 {details.totalQueries} 个角度查找相关内容。</p></div>}
+            {details.expandedQueries.length > 0 && <div><span>补充查找</span><p>{details.expandedQueries.join('；')}</p></div>}
+            {details.hydeDoc && <div><span>检索描述</span><p>{details.hydeDoc}</p></div>}
+            {details.planLength && <div><span>处理步骤</span><p>系统将问题拆分为 {details.planLength} 个步骤后再汇总。</p></div>}
+            {details.rounds && <div><span>核对次数</span><p>经过 {details.rounds} 轮查找与核对。</p></div>}
+            {details.stepCount && <div><span>工具协作</span><p>完成了 {details.stepCount} 个处理步骤。</p></div>}
+            {details.toolCount && <div><span>工具使用</span><p>本次调用了 {details.toolCount} 项辅助能力。</p></div>}
+            {details.fallbackMessage && <div><span>处理说明</span><p>{details.fallbackMessage}</p></div>}
+            {details.strategies.length > 0 && <div><span>完整处理方式</span><p>{details.strategies.join('、')}</p></div>}
+          </div>
+        </details>
+      )}
+    </section>
   )
 }
 
@@ -266,6 +353,7 @@ export default function App() {
   const tabs = supportMode ? [{ key: 'rag', label: '智能问答', icon: '🤖' }] : [
     { key: 'start', label: '开始使用', icon: '🏠' },
     { key: 'rag', label: '智能问答', icon: '🤖' },
+    ...(user?.role === 'admin' ? [{ key: 'video-studio', label: '视频工坊', icon: '🎬' }] : []),
     { key: 'stats', label: '使用统计', icon: '📊' },
   ]
 
@@ -1060,34 +1148,26 @@ export default function App() {
             </div>}
           </div>}
 
-          {/* 查询增强与策略信息 — 所有模式均显示 */}
-          {queryEnhancement && <div style={{ marginTop: 12, padding: '10px 14px', background: '#f6f8ff', borderRadius: 8, fontSize: 12, color: '#555', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>🔍 查询增强策略</div>
-              {queryEnhancement.originalQuery && <div>📝 原始查询：{queryEnhancement.originalQuery}</div>}
-              {queryEnhancement.rewrittenQuery && <div>✏️ 重写查询：<span style={{ color: '#1677ff' }}>{queryEnhancement.rewrittenQuery}</span></div>}
-              {queryEnhancement.hydeDoc && <div>📄 HyDE假设文档：<span style={{ color: '#888', fontSize: 11 }}>{queryEnhancement.hydeDoc}</span></div>}
-              {queryEnhancement.expandedQueries?.length > 0 && <div>🔀 扩展查询（{queryEnhancement.expandedQueries.length}个）：{queryEnhancement.expandedQueries.slice(0, 4).map((q, i) => <span key={i} style={{ display: 'inline-block', background: '#e6f4ff', padding: '1px 6px', borderRadius: 4, margin: '2px 4px', fontSize: 11 }}>{q}</span>)}</div>}
-              {queryEnhancement.totalQueries && <div>📊 共生成 <b>{queryEnhancement.totalQueries}</b> 个查询 | 策略：{queryEnhancement.strategies?.join('、')}</div>}
-              {!queryEnhancement.totalQueries && queryEnhancement.strategies && <div>📊 策略：{queryEnhancement.strategies?.join('、')}</div>}
-            </div>}
-          {/* Agent 策略信息（ReAct/Plan-Solve 模式也显示） */}
-          {ragMeta && (ragMeta.agent || ragMeta.reflection || ragMeta.answerSource || ragMeta.router || ragMeta.memory) && <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0f5ff', borderRadius: 8, fontSize: 12, color: '#555', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>🧠 高级策略信息</div>
-              {ragMeta.memory?.resolved && <div>💬 对话记忆：指代消解 “{ragMeta.memory.originalQuestion}” → <b style={{ color: '#722ed1' }}>“{ragMeta.memory.resolvedQuestion}”</b></div>}
-              {ragMeta.router && <div>🧭 智能路由：<b>{ragMeta.router.mode}</b>（{ragMeta.router.reason}）<span style={{ color: '#999', marginLeft: 6 }}>— {ragMeta.router.routedBy === 'rule' ? '规则分类' : ragMeta.router.routedBy === 'llm' ? 'LLM 分类' : '手动指定'}</span></div>}
-              {ragMeta.answerSource && <div>📌 回答来源：<span style={{ color: '#1677ff' }}>{ragMeta.answerSource}</span></div>}
-              {ragMeta.agent && <>
-                <div>🔧 策略模式：<b>{ragMeta.agent.mode}</b>{ragMeta.agent.fallback && <span style={{ color: '#fa8c16' }}>（已回退，原因：{ragMeta.agent.error}）</span>}</div>
-                {ragMeta.agent.rounds && <div>🔄 推理轮次：{ragMeta.agent.rounds} 轮</div>}
-                {ragMeta.agent.plan && <div>📋 问题分解：{ragMeta.agent.plan.length} 步</div>}
-                {ragMeta.agent.trace && ragMeta.agent.trace.length > 0 && <div style={{ marginTop: 4 }}>🔍 推理过程：{ragMeta.agent.trace.map((t, i) => <div key={i} style={{ marginLeft: 12, color: '#888' }}>第{t.round}轮 → {t.searchQuery || '完成'}{t.resultCount !== undefined ? `（命中 ${t.resultCount} 条）` : ''}</div>)}</div>}
-                {ragMeta.agent.steps && <div>🔄 执行步骤：{ragMeta.agent.steps} 步</div>}
-                {ragMeta.agent.toolCalls?.length > 0 && <div style={{ marginTop: 4 }}>🛠️ 工具调用：{ragMeta.agent.toolCalls.map((tc, i) => <div key={i} style={{ marginLeft: 12, color: '#888' }}>{tc.tool}({Object.values(tc.args || {}).map(v => typeof v === 'string' ? v.substring(0, 30) : v).join(', ')})</div>)}</div>}
-              </>}
-              {ragMeta.reflection?.applied && <div style={{ color: '#52c41a' }}>✅ 反思优化已应用（{ragMeta.reflection.originalLength} → {ragMeta.reflection.improvedLength} 字）</div>}
-              {ragMeta.reflection?.applied === false && <div style={{ color: '#fa8c16' }}>⚠️ 反思优化未生效：{ragMeta.reflection.error}</div>}
-            </div>}
-          {ragSources.length > 0 && <div className="rag-sources-box"><div className="lang-label">回答依据</div>{ragSources.map((src, i) => (<div id={`rag-source-${src.evidenceId || i}`} key={src.evidenceId || i} className={`rag-source-item ${selectedEvidenceId === src.evidenceId ? 'rag-source-item--selected' : ''}`}><span className="source-num">[{src.evidenceId || i + 1}]</span><SourceExcerpt source={src} /><div className="source-score"><span>{src.docName ? `📄 ${src.docName}` : ''}</span>{src.sourceType === 'sop' && <span style={{ marginLeft: 8 }}>📋 标准流程</span>}{src.productModel && <span style={{ marginLeft: 8 }}>适用：{src.productModel}</span>}{src.supportedClaims?.length > 0 && <span className="source-claim">支持本回答中的 {src.supportedClaims.length} 项内容</span>}</div></div>))}</div>}
+          <RetrievalInsight queryEnhancement={queryEnhancement} ragMeta={ragMeta} />
+          {ragSources.length > 0 && <section className="rag-sources-box" aria-label="回答参考依据">
+            <div className="rag-sources-heading">
+              <div>
+                <div className="lang-label">参考依据</div>
+                <p>以下文档片段用于生成本次回答，可按需展开查看。</p>
+              </div>
+              <span>{ragSources.length} 条</span>
+            </div>
+            <div className="rag-source-list">
+              {ragSources.map((src, i) => <article id={`rag-source-${src.evidenceId || i}`} key={src.evidenceId || `${src.docName || 'source'}-${i}`} className={`rag-source-item ${selectedEvidenceId === src.evidenceId ? 'rag-source-item--selected' : ''}`}>
+                <SourceExcerpt source={src} index={i} />
+                <div className="source-score">
+                  {src.sourceType === 'sop' && <span>📋 标准流程</span>}
+                  {src.productModel && <span>适用：{src.productModel}</span>}
+                  {src.supportedClaims?.length > 0 && <span className="source-claim">支持本回答中的 {src.supportedClaims.length} 项内容</span>}
+                </div>
+              </article>)}
+            </div>
+          </section>}
 
           {/* 只展示有可靠问题匹配的操作视频 */}
           {activeGuidanceVideo && (
@@ -1149,6 +1229,8 @@ export default function App() {
           <div>用户：{user.username}（{user.nickname}）</div>
         </div></div>
       </>)}
+
+      {activeTab === 'video-studio' && user.role === 'admin' && <SopVideoStudio api={API} />}
 
       {/* 视频播放弹窗 */}
       {playingVideo && (

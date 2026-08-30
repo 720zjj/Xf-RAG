@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test --test-concurrency=1",
+    "lint": "eslint server scripts test src",
     "eval:rag": "node scripts/run-rag-evaluation.js",
     "compose:config": "docker compose --env-file deploy/.env.compose.example config",
     "compose:up": "docker compose --env-file .env.compose up --build -d",
@@ -51,8 +52,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^4.3.4",
     "docx": "^9.7.1",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "vite": "^6.0.0"
   },
   "overrides": {

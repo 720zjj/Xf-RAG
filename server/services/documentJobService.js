@@ -103,7 +103,7 @@ export function createDocumentJobService({
     try {
       await enqueue({ id: job.id, documentId: job.documentId, userId: job.userId, jobType: job.jobType })
       return { queued: true }
-    } catch (error) {
+    } catch {
       await databasePool.query(
         `UPDATE document_jobs SET error_message = ? WHERE id = ? AND status = 'queued'`,
         [QUEUE_UNAVAILABLE_MESSAGE, job.id]

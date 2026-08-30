@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { authMiddleware, isAdmin } from '../middleware/auth.js'
 import pool from '../db.js'
-import { BM25Index, SemanticIndex, rerank, generateAnswer, generateAnswerLLM, isLLMEnabled, isAnyLLMAvailable, callLLM, generateHyDE, generateHyDEPassage, generateHyDELLM, rewriteQuery, rewriteQueryLLM, expandQueries } from '../services/ragEngine.js'
-import { reactRetrieve, planAndSolveRetrieve, reflectOnAnswer, synthesizeAnswer, isAgentEnabled } from '../services/ragAgent.js'
+import { BM25Index, SemanticIndex, rerank, isLLMEnabled, isAnyLLMAvailable, callLLM, generateHyDE, generateHyDEPassage, generateHyDELLM, rewriteQuery, rewriteQueryLLM, expandQueries } from '../services/ragEngine.js'
+import { reactRetrieve, planAndSolveRetrieve, isAgentEnabled } from '../services/ragAgent.js'
 import { routeQuestion } from '../services/routerAgent.js'
 import { runToolAgent } from '../services/toolAgent.js'
 import { rewriteWithContext, addToHistory, clearSession } from '../services/memoryAgent.js'
@@ -11,7 +11,7 @@ import { chunkDocument, loadUserChunks } from '../services/chunkStore.js'
 import { filterChunkBundle } from '../services/ragFilters.js'
 import { buildKnowledgeScope } from '../services/knowledgeAccess.js'
 import { buildVideoGuidance, extractRecommendationKeywords, findVideoRecommendations } from '../services/recommendations.js'
-import { findNearbySourceImages } from '../services/sourceImages.js'
+
 import { createRateLimit } from '../middleware/rateLimit.js'
 import { resolveSopFastPath } from '../services/sopFastPath.js'
 import { runTrustedRagRequest } from '../services/trustedRagService.js'
@@ -207,43 +207,20 @@ async function findRecommendations(effectiveQuestion, filterProductLine = '', fi
   return { recommendedVideos, recommendedSops, videoGuidance }
 }
 
-// 检索块可能只命中图片前后的说明文字。为每条来源补充同文档的相邻图片，且仍按知识库权限校验。
-async function buildSourceReferences(userId, retrieved, limit = 5) {
-  const references = retrieved.slice(0, limit).map(item => ({
-    text: item.text || '',
-    score: item.score ? parseFloat(item.score.toFixed(3)) : 0,
-    bm25Score: item.bm25Score ? parseFloat(item.bm25Score.toFixed(3)) : 0,
-    docName: item.docName || '',
-    factors: item.factors,
-    images: []
-  }))
-  const docIds = [...new Set(retrieved.slice(0, limit).map(item => Number(item.docId)).filter(Number.isInteger))]
-  if (docIds.length === 0) return references
-
+// SOP 直达不走完整 RAG，但仍做一次轻量视频查询，避免文字指南与视频入口割裂。
+async function findFastPathVideoRecommendations(question, filters = {}) {
   try {
-    const scope = buildKnowledgeScope(userId, { documentAlias: 'd', ownerAlias: 'owner' })
-    const placeholders = docIds.map(() => '?').join(', ')
-    const [docs] = await pool.query(
-      `SELECT d.id, d.content
-       FROM documents d
-       JOIN users owner ON d.user_id = owner.id
-       WHERE d.id IN (${placeholders}) AND d.status = 1 AND ${scope.where}`,
-      [...docIds, ...scope.params]
-    )
-    const contentByDocId = new Map(docs.map(doc => [Number(doc.id), doc.content || '']))
-    return references.map((reference, index) => ({
-      ...reference,
-      images: findNearbySourceImages({
-        docId: retrieved[index].docId,
-        chunkText: reference.text,
-        documentContent: contentByDocId.get(Number(retrieved[index].docId)) || ''
-      })
-    }))
-  } catch (err) {
-    console.warn('[RAG] 读取来源图片失败，不影响问答：', err.message)
-    return references
+    const recommendedVideos = await findVideoRecommendations(question, filters)
+    return {
+      recommendedVideos,
+      videoGuidance: buildVideoGuidance(question, recommendedVideos)
+    }
+  } catch (recErr) {
+    console.warn('[SOP 快速路径] 视频检索失败，不影响文字步骤：', recErr.message)
+    return { recommendedVideos: [], videoGuidance: null }
   }
 }
+
 
 // RAG 问答（跨所有文档检索）
 router.post('/ask', authMiddleware, ragRateLimit, async (req, res) => {
@@ -271,7 +248,10 @@ router.post('/ask', authMiddleware, ragRateLimit, async (req, res) => {
         availableModels: [fastPath.sop.product_model].filter(Boolean),
         generate: async () => buildSopBlocks(fastPath.sop)
       })
-      const qaId = await saveSopFastAnswer(req.user.id, question, trusted.answer, fastPath.sop)
+      const [qaId, { recommendedVideos, videoGuidance }] = await Promise.all([
+        saveSopFastAnswer(req.user.id, question, trusted.answer, fastPath.sop),
+        findFastPathVideoRecommendations(question, fastPathFilters)
+      ])
       const traceId = await persistTrustedTrace({
         userId: req.user.id, qaId, endpoint: 'ask', question, productLine: fastPathFilters.productLine,
         productModel: fastPathFilters.productModel, trust: trusted.trust, evidence: trusted.evidence,
@@ -287,7 +267,9 @@ router.post('/ask', authMiddleware, ragRateLimit, async (req, res) => {
           trust: trusted.trust,
           answerBlocks: trusted.answerBlocks,
           sources: trusted.sources,
+          recommendedVideos: recommendedVideos.length > 0 ? recommendedVideos : undefined,
           recommendedSops: [fastPath.sop],
+          videoGuidance: videoGuidance || undefined,
           totalChunks: 0,
           totalDocs: 0,
           answerSource: 'sop-fast-path',
@@ -896,7 +878,10 @@ router.post('/ask-stream', authMiddleware, ragRateLimit, async (req, res) => {
         availableModels: [fastPath.sop.product_model].filter(Boolean),
         generate: async () => buildSopBlocks(fastPath.sop)
       })
-      const qaId = await saveSopFastAnswer(req.user.id, question, trusted.answer, fastPath.sop)
+      const [qaId, { recommendedVideos, videoGuidance }] = await Promise.all([
+        saveSopFastAnswer(req.user.id, question, trusted.answer, fastPath.sop),
+        findFastPathVideoRecommendations(question, fastPathFilters)
+      ])
       const traceId = await persistTrustedTrace({
         userId: req.user.id, qaId, endpoint: 'ask-stream', question, productLine, productModel,
         trust: trusted.trust, evidence: trusted.evidence, metadata: { answerSource: 'sop-fast-path' }
@@ -912,7 +897,9 @@ router.post('/ask-stream', authMiddleware, ragRateLimit, async (req, res) => {
         agent: { mode: 'sop-direct' },
         router: fastPath.router,
         sources: trusted.sources,
+        recommendedVideos: recommendedVideos.length > 0 ? recommendedVideos : undefined,
         recommendedSops: [fastPath.sop],
+        videoGuidance: videoGuidance || undefined,
         queryEnhancement: { originalQuery: question, strategies: ['SOP标准流程直查'] }
       })
       return

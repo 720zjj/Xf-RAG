@@ -59,7 +59,7 @@ export function authMiddleware(req, res, next) {
     const decoded = jwt.verify(token, getJwtSecret())
     req.user = { ...decoded, role: roleForUsername(decoded.username) }
     next()
-  } catch (err) {
+  } catch {
     return res.status(401).json({ ok: false, error: 'Token 无效或已过期' })
   }
 }

@@ -1,4 +1,4 @@
-import { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable } from './langchainLLM.js'
+﻿import { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable } from './langchainLLM.js'
 export { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable }
 
 // 分词器
@@ -14,14 +14,6 @@ function tokenize(text) {
   return tokens
 }
 
-// 提取连续词组（bigram），用于精确匹配加分
-function extractBigrams(tokens) {
-  const bigrams = []
-  for (let i = 0; i < tokens.length - 1; i++) {
-    bigrams.push(tokens[i] + ' ' + tokens[i + 1])
-  }
-  return bigrams
-}
 
 // 前置同义词归一化：扫描文本中出现的已知同义词条，产出其"概念词"原子 token（如 #方言）。
 // 建索引与查询两侧都调用，使不同表述（四川话/东北话/粤语）映射到同一维度，
@@ -547,7 +539,7 @@ export function generateHyDE(query) {
   const meaningful = phrases.filter(p => p.length >= 2 || /^[a-z0-9]+$/.test(p))
   const queryType = detectQueryType(query)
 
-  let coreTerms = []
+  let coreTerms
 
   if (meaningful.length > 0 && phrasesContainKnownVocab(meaningful)) {
     // 去重保留顺序
@@ -733,7 +725,7 @@ export function rewriteQuery(query) {
   const meaningful = phrases.filter(p => p.length >= 2 || /^[a-z0-9]+$/.test(p))
   const queryType = detectQueryType(query)
 
-  let coreTerms = []
+  let coreTerms
 
   if (meaningful.length > 0 && phrasesContainKnownVocab(meaningful)) {
     coreTerms = [...new Set(meaningful)]
@@ -792,7 +784,7 @@ export function rewriteQueryVariants(query) {
   const meaningful = phrases.filter(p => p.length >= 2 || /^[a-z0-9]+$/.test(p))
   const queryType = detectQueryType(query)
 
-  let coreTerms = []
+  let coreTerms
   if (meaningful.length > 0 && phrasesContainKnownVocab(meaningful)) {
     coreTerms = [...new Set(meaningful)]
   } else {

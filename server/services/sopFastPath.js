@@ -20,6 +20,26 @@ function includesKeyword(value, keyword) {
   return String(value || '').toLocaleLowerCase().includes(String(keyword || '').toLocaleLowerCase())
 }
 
+function textValue(value) {
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : ''
+}
+
+function formatSopStep(step) {
+  const simpleText = textValue(step)
+  if (simpleText) return simpleText
+  if (!step || typeof step !== 'object') return ''
+
+  const action = [step.action, step.description, step.content, step.instruction, step.text, step.title, step.name]
+    .map(textValue)
+    .find(Boolean) || ''
+  const detail = [step.detail, step.tip, step.note, step.reminder]
+    .map(textValue)
+    .find(Boolean) || ''
+
+  if (!action) return detail
+  return detail && detail !== action ? `${action}（${detail}）` : action
+}
+
 export function classifySopFastPath(question) {
   const source = String(question || '').trim()
   const hasOperationIntent = OPERATION_PATTERN.test(source)
@@ -46,7 +66,7 @@ export function rankSops(sops, { keywords = [], productLine = '', productModel =
         (!productModel || !sopModel || sopModel === productModel)
     })
     .map(sop => {
-      const steps = parseList(sop.steps).join(' ')
+      const steps = parseList(sop.steps).map(formatSopStep).join(' ')
       let relevance = 0
       for (const keyword of keywords) {
         if (includesKeyword(sop.title, keyword)) relevance += 12
@@ -67,7 +87,7 @@ export function formatSopAnswer(sop) {
   const lines = [
     `问题结论：可按“${sop.title}”标准操作指南完成操作。`,
     '操作步骤：',
-    ...steps.map((step, index) => `${index + 1}. ${step}`)
+    ...steps.map((step, index) => `${index + 1}. ${formatSopStep(step) || '请查看完整操作指南'}`)
   ]
 
   if (prerequisites.length > 0 || warnings.length > 0 || sop.completion_check) {

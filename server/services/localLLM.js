@@ -135,7 +135,7 @@ export async function localLLMStream(messages, { temperature = 0.2, maxNewTokens
         const delta = currentText.slice(lastText.length)
         lastText = currentText
         if (onToken) {
-          try { onToken(delta) } catch (e) { /* ignore callback errors */ }
+          try { onToken(delta) } catch { /* ignore callback errors */ }
         }
       }
     }
