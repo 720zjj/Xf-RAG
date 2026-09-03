@@ -65,3 +65,9 @@ test('无连接符的常见型号代码也会被当作显式型号处理', () =>
   assert.equal(detectExplicitModel('X1 如何恢复出厂？'), 'X1')
   assert.equal(detectExplicitModel('V2.0 的说明书在哪里？'), 'V2.0')
 })
+
+test('Wi-Fi 和 USB-C 等通用技术名称不会被误判成产品型号', () => {
+  assert.equal(detectExplicitModel('翻译机怎么连接 Wi-Fi？'), '')
+  assert.equal(detectExplicitModel('USB-C 接口怎么充电？'), '')
+  assert.equal(detectExplicitModel('双屏翻译机 2.0 怎么连接 Wi-Fi？'), '翻译机2.0')
+})

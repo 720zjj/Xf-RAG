@@ -44,7 +44,7 @@ flowchart LR
 - **多工具 Agent**：可按问题选择知识库检索、摘要、文档管理、SOP 查询和视频检索等工具。
 - **产品资料隔离**：检索时按用户、产品线、产品型号、审核状态和废弃状态过滤，避免跨型号回答。
 - **SOP 与视频推荐**：根据问题关键词推荐已审核 SOP 和已发布操作视频；支持视频章节和解决状态记录。
-- **SOP 视频工作室**：管理员可将结构化 SOP 一键渲染为可下载的操作演示视频（Canvas 动画 + 场景编排 + 配音/字幕轨预留），无需外录。
+- **SOP 视频工作室**：保留浏览器 Canvas/WebM 快速草稿，并可选接入独立 OpenMAIC 服务生成带场景编排与配音能力的可审核课程草稿；模型结果不会自动发布。
 - **安全访问控制**：使用 HttpOnly Cookie 会话、角色权限、登录/问答限流和受保护的上传资源路由；上传文件不会被整个目录公开暴露。
 - **可重复迁移**：统一迁移脚本可幂等创建和升级数据库表、索引与约束，兼容旧结构。
 
@@ -169,7 +169,7 @@ Docker Compose 会同时运行前端、API、文档 Worker、MySQL 和 Redis，�
 
 5. 仅做同一 Wi-Fi 的受控测试时，在 `.env.compose` 中设置 `APP_BIND_ADDRESS=0.0.0.0`，使用 `ipconfig` 找到这台电脑的 IPv4 地址，并在 Windows 防火墙允许 TCP 3000；另一台设备访问 `http://<电脑局域网 IP>:3000`。局域网 HTTP 仅用于受控测试，不能当成公网发布。
 
-6. 面向真实客户的公网二维码需要一台服务器、域名、反向代理和 HTTPS。部署时设置 `NODE_ENV=production`，并设置非 localhost 的 HTTPS `PUBLIC_APP_URL`（例如 `https://support.example.com`）；只有完成这些条件后，才生成或印刷用于公开分发的二维码。不要把局域网地址描述为公网发布地址。
+6. 面向真实客户的公网二维码需要一台服务器、域名、反向代理和 HTTPS。部署时设置 `NODE_ENV=production`，并设置非 localhost 的 HTTPS `PUBLIC_APP_URL`（例如 `https://support.example.com`）；只有完成这些条件后，才生成或印刷用于公开分发的二维码。不要把局域网地址描述为公网发布地址。同机 Nginx/Caddy 代理到仅监听 `127.0.0.1` 的 Docker 端口时，将 `TRUST_PROXY` 设置为 `loopback,linklocal,uniquelocal`，让限流读取真实顾客 IP；局域网直接开放 3000 时必须留空，禁止设置为 `true` 或信任全部网段。
 
 7. 执行数据变更前先备份；可自定义输出文件路径。恢复会改写数据，必须已有备份并先在一次性测试数据库演练；恢复命令不会停止服务或删除卷，但仍需人工明确确认。
 
@@ -179,18 +179,26 @@ Docker Compose 会同时运行前端、API、文档 Worker、MySQL 和 Redis，�
    npm run db:restore -- backups/file.sql -- --confirm-restore
    ```
 
+   从当前 Windows 本机 MySQL 与 `uploads` 制作阿里云迁移包时，使用下面的只读打包命令。第一个参数是当前环境文件，第二个参数是安全的输出名称；命令会在 `backups` 中生成 SQL、上传目录压缩包、两份 SHA-256 校验文件和一份不含密码的清单。文件已存在时会拒绝覆盖，`UPLOAD_DIR` 指向项目外部或符号链接时也会拒绝执行。
+
+   ```bash
+   npm run migration:pack -- .env aliyun-candidate-YYYYMMDD
+   ```
+
+   上传到服务器后，必须先用对应 `.sha256` 文件核对 SQL 和上传压缩包，再导入一个新建的空数据库并解压到生产 `UPLOAD_DIR`。Linux 可在 `backups` 目录执行 `sha256sum -c <文件名>.sha256`；Windows 可用 `Get-FileHash <文件名> -Algorithm SHA256` 并与 `.sha256` 中的值对照。首次恢复应使用隔离的 MySQL 容器或独立测试实例，逐表核对 `documents`、`document_chunks`、`sops`、`videos`、`support_channels` 等数量后，才能切换正式服务。迁移包目前不会自动复制到异地介质；请把五个文件手工复制到另一台受控机器或独立存储，并再次核对 SHA-256。
+
 8. Docker Linux engine 可用后，仍需完成以下人工验收：镜像构建、一次性 Compose 启动、`/api/live` 与 `/api/health`、API 重启后的 Worker 恢复、局域网访问、备份/恢复演练、公网二维码流程，以及由你本人完成的 30 题 RAG 实测。最后一项是用户测量，不是自动生成的质量分数。
 
 ## 扫码产品支持二维码：配置、测试与发布
 
-二维码只保存一个随机入口编号，用于打开固定产品型号的支持问答页面；**二维码不是身份凭证**。无论扫码还是直接访问 URL，普通用户仍必须使用现有账号登录，不能匿名提问。
+二维码只保存一个随机入口编号，用于打开固定产品型号的支持问答页面；**二维码不是管理员身份凭证**。扫码或直接访问有效 `/support/<channelCode>` 的顾客无需注册和登录：服务端解析渠道、校验有效资料后签发短时受限顾客会话，并始终以服务端绑定的产品型号限定问答和视频。该会话不能访问资料、二维码、视频管理或管理员推理接口。
 
 按以下顺序配置和验证：
 
 1. 在 `.env` 中设置 `PUBLIC_APP_URL`、`ADMIN_USERNAMES`、`ADMIN_REGISTRATION_KEY` 和 `JWT_SECRET`。本机开发可使用 `PUBLIC_APP_URL=http://localhost:3000`；`JWT_SECRET` 必须使用生产强度、足够长的随机值，不要把真实密钥写入 README、代码或提交记录。生产环境的 `PUBLIC_APP_URL` 必须是实际可访问的 HTTPS 公网域名，例如 `https://support.example.com`。
 2. 先执行 `npm run db:migrate`，再使用 `ADMIN_USERNAMES` 中的账号注册或登录管理员（注册时提供 `ADMIN_REGISTRATION_KEY`）。管理员在管理界面创建固定产品线/产品型号的入口并下载二维码。本地可用 URL 形状为 `/support/<channelCode>` 测试；`localhost` 仅限本地开发，必须在设置真实 HTTPS 公网域名后，才可印刷或分发生产二维码。
-3. 使用**独立的普通测试账号**打开或扫描该二维码，在仍保留 `/support/<channelCode>` URL 的情况下登录。确认页面只针对二维码绑定的型号提问，且现有可信 RAG 回答、来源跳转、视频推荐和反馈行为仍可用。
-4. 手工验收失效边界：格式错误、已停用或已轮换的 code 必须显示“入口不可用”，且不得发送 RAG 请求或回退到通用资料。普通用户尝试管理 API 必须得到 `403`；管理员可以创建、编辑、下载、停用和轮换二维码入口。
+3. 使用无痕窗口或未登录的手机打开、扫描二维码，确认不出现登录或注册页，页面只针对二维码绑定的型号提问，且现有可信 RAG 回答、来源跳转、官方视频推荐和反馈行为仍可用。后台已登录的管理员打开顾客链接时也必须看到顾客页面，不能把后台推理参数带入顾客请求。
+4. 手工验收失效和越权边界：格式错误、已停用或已轮换的 code 必须显示“入口不可用”，且不得发送 RAG 请求或回退到通用资料；顾客会话尝试资料、二维码、视频管理或 Agent API 必须被拒绝；伪造另一个 channel code 不能切换型号。管理员仍可创建、编辑、下载、停用和轮换二维码入口。
 
 ### 生产迁移注意事项
 
@@ -289,6 +297,22 @@ npm run eval:rag -- --input D:\path\to\rag-evaluation-results.json
 ```
 
 当前历史离线检索基线为 27/27 应答题 Top-3 命中；这只证明资料检索覆盖，不能代表本次可信回答链路已经通过真实问答。完整题目依据与旧基线见 [评测说明](docs/2026-08-28-rag-evaluation-baseline.md)。
+
+### 普通顾客真实接口回归
+
+`test/fixtures/rag-live-audit.json` 另含两款首发型号的自动回归题。它会真实请求当前 API，检查回答关键点、拒答、资料来源、型号边界、视频/SOP 型号，以及普通用户响应是否泄露管理员检索字段。脚本还会故意提交管理员推理参数，验证后端确实忽略普通用户的越权设置。
+
+请使用短期普通用户令牌运行，不要把令牌写入仓库：
+
+```powershell
+$env:RAG_AUDIT_TOKEN = '<短期普通用户令牌>'
+npm run audit:rag:live -- --base-url http://127.0.0.1:3000 --output .runtime/rag-live-audit.json
+
+# 只复测指定题目
+npm run audit:rag:live -- --ids L4-03,L4-07,L2-08
+```
+
+这套自动回归用于快速发现代码回退，不能代替在正式资料、正式模型和最终页面中逐题确认的 30 题人工验收。
 
 ## MCP 接入（可选）
 

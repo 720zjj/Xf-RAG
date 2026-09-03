@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  anchorGettingStartedResults,
   BM25Index,
   SemanticIndex,
   expandQueries,
@@ -61,6 +62,30 @@ test('expandQueries：生成同义词替换与短语变体', () => {
   assert.ok(queries.some(q => q.includes('翻译机')))
 })
 
+test('expandQueries：宽泛新手问题补充首次语音翻译检索锚点', () => {
+  const queries = expandQueries('我不知道怎么用这个翻译机')
+  const quickQuestionQueries = expandQueries('第一次使用怎么操作？')
+
+  assert.ok(queries.some(query => query.includes('解锁') && query.includes('语音翻译界面')))
+  assert.ok(quickQuestionQueries.some(query => query.includes('解锁') && query.includes('语音翻译界面')))
+  assert.ok(queries.every(query => !query.includes('中文键') && !query.includes('外文键')))
+  assert.equal(expandQueries('翻译机怎么使用拍照翻译').some(query => query.includes('语音翻译界面')), false)
+})
+
+test('宽泛新手问题在候选截断后仍锚定同型号官方入门片段', () => {
+  const chunks = [
+    '首次翻译操作：长按左侧中文键，松开后播报。',
+    '翻译机 4.0 怎么使用语音翻译？开机后向上轻滑解锁，解锁后直接进入语音翻译界面并设置语种。'
+  ]
+  const sources = [{ docId: 1, docName: '快速入门指南.md' }, { docId: 2, docName: '讯飞翻译机4.0官方常见问题.md' }]
+  const metadata = [{ productModel: '' }, { productModel: '翻译机4.0' }]
+  const result = anchorGettingStartedResults('翻译机第一次使用怎么操作？', [
+    { index: 0, text: chunks[0], docId: 1, docName: sources[0].docName, metadata: metadata[0] }
+  ], chunks, sources, metadata, '翻译机4.0')
+  assert.equal(result[0].index, 1)
+  assert.equal(result[0].metadata.productModel, '翻译机4.0')
+})
+
 test('rewriteQuery：生成检索友好的核心词查询', () => {
   const rewritten = rewriteQuery('翻译机怎么连接WiFi？')
   assert.match(rewritten, /翻译机/)
@@ -114,6 +139,79 @@ test('rerank：综合因子排序并把最相关候选排前', () => {
   assert.equal(ranked[0].index, 2)
   assert.ok(ranked.every(r => typeof r.rerankScore === 'number'))
   assert.ok(ranked.every(r => r.factors && typeof r.factors.coverage === 'number'))
+})
+
+test('rerank：切换翻译语种教程优先于声音、系统语言、离线包和故障排查', () => {
+  const allChunks = [
+    '【章节：在线语音翻译】在语音翻译界面点击顶部语言栏，选择源语言和目标语言。',
+    '【章节：语音播报】中英互译支持男声/女声切换。',
+    '【章节：首次开机】根据屏幕提示选择系统显示语言（中文/English）。',
+    '【章节：离线翻译】进入离线翻译管理，选择需要使用的语言并下载语言包。',
+    '【章节：无法进行翻译怎么办】确认已选择正确的翻译语种，重启设备后重试。'
+  ]
+  const chunkSources = allChunks.map((_, index) => ({ docId: `d${index + 1}` }))
+  // 故意让相邻资料拥有更高的原始检索分，验证直接操作证据仍能止血置顶。
+  const candidates = [
+    { index: 0, score: 0.25 },
+    { index: 1, score: 1 },
+    { index: 2, score: 0.92 },
+    { index: 3, score: 0.88 },
+    { index: 4, score: 0.95 }
+  ]
+  const semanticScores = { 0: 0.45, 1: 1, 2: 0.8, 3: 0.85, 4: 0.97 }
+
+  const ranked = rerank(
+    '翻译机怎么切换翻译语言？',
+    candidates,
+    allChunks,
+    chunkSources,
+    semanticScores
+  )
+
+  assert.equal(ranked[0].index, 0)
+  assert.equal(ranked[0].factors.intentMatch, true)
+  for (const adjacent of ranked.filter(item => item.index !== 0)) {
+    assert.equal(adjacent.factors.intentMatch, false)
+    assert.ok(adjacent.factors.coverage < 1)
+  }
+})
+
+test('rerank：重新播放问题优先点读复听说明而不是自动朗读', () => {
+  const allChunks = [
+    '【章节：语音播报】翻译结果自动朗读，支持调节语速和音量。',
+    '【章节：在线语音翻译】翻译结果自动语音播报，支持点读复听。',
+    '【章节：翻译记录】可查看、复听历史翻译内容。'
+  ]
+  const chunkSources = allChunks.map((_, index) => ({ docId: `replay-${index + 1}` }))
+  const ranked = rerank(
+    '翻译结果可以重新播放吗？',
+    [{ index: 0, score: 1 }, { index: 1, score: 0.6 }, { index: 2, score: 0.5 }],
+    allChunks,
+    chunkSources,
+    { 0: 1, 1: 0.7, 2: 0.65 }
+  )
+
+  assert.equal(ranked[0].index, 1)
+  assert.equal(ranked[0].factors.intentMatch, true)
+  assert.equal(ranked.find(item => item.index === 0).factors.intentMatch, false)
+  assert.ok(ranked.find(item => item.index === 0).factors.coverage < 1)
+})
+
+test('rerank：原子概念拆分后仍保留方言同义词能力', () => {
+  const chunks = [
+    '设备支持粤语和四川话识别，可用于地方口音交流。',
+    '设备支持调整屏幕亮度。'
+  ]
+  const ranked = rerank(
+    '支持地方话吗？',
+    [{ index: 0, score: 1 }, { index: 1, score: 1 }],
+    chunks,
+    [{ docId: 'dialect' }, { docId: 'display' }],
+    { 0: 1, 1: 1 }
+  )
+
+  assert.equal(ranked[0].index, 0)
+  assert.equal(ranked[0].factors.coverage, 1)
 })
 
 test('rerank：空候选返回空数组', () => {

@@ -76,3 +76,28 @@ test('无权限用户不能读取知识缺口聚合', async () => {
     error => error.status === 403
   )
 })
+
+test('管理员可读取已解决和未解决的真实反馈汇总', async () => {
+  const pool = createFakePool()
+  pool.query = async (sql, params = []) => {
+    pool.calls.push({ sql, params })
+    if (/SUM\(f\.outcome = "solved"\)/.test(sql)) {
+      return [[{ question: '怎么联网？', productModel: '翻译机2.0', solvedCount: '2', unsolvedCount: '1', feedbackCount: '3' }]]
+    }
+    return [[]]
+  }
+  const service = createRagTraceService({ pool })
+
+  const rows = await service.listFeedbackSummary({ canManage: true, productModel: '翻译机2.0' })
+
+  assert.deepEqual(rows[0], {
+    question: '怎么联网？', productModel: '翻译机2.0', solvedCount: 2, unsolvedCount: 1, feedbackCount: 3
+  })
+  assert.match(pool.calls[0].sql, /FROM rag_answer_feedback/)
+  assert.deepEqual(pool.calls[0].params, ['翻译机2.0', 50])
+})
+
+test('普通用户不能读取顾客反馈汇总', async () => {
+  const service = createRagTraceService({ pool: createFakePool() })
+  await assert.rejects(() => service.listFeedbackSummary({ canManage: false }), error => error.status === 403)
+})

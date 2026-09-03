@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ProductSelector } from './ProductSelector.jsx'
 
-const EMPTY_FORM = { displayName: '', productLine: '', productModel: '' }
+const EMPTY_FORM = { displayName: '', productLine: '', productKey: '' }
 
 function messageFrom(error, fallback) {
   return error instanceof Error && error.message ? error.message : fallback
@@ -26,6 +27,7 @@ async function readApiResponse(response, fallback) {
 
 export function SupportChannelManager({ apiFetch, publicAppUrl }) {
   const [channels, setChannels] = useState([])
+  const [products, setProducts] = useState([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -46,7 +48,17 @@ export function SupportChannelManager({ apiFetch, publicAppUrl }) {
     }
   }, [apiFetch])
 
-  useEffect(() => { loadChannels() }, [loadChannels])
+  const loadProducts = useCallback(async () => {
+    try {
+      const data = await readApiResponse(await apiFetch('/api/support-channels/products'), '无法获取产品型号')
+      setProducts(Array.isArray(data) ? data : [])
+    } catch (requestError) {
+      setProducts([])
+      setError(messageFrom(requestError, '无法获取产品型号'))
+    }
+  }, [apiFetch])
+
+  useEffect(() => { loadChannels(); loadProducts() }, [loadChannels, loadProducts])
 
   const runAction = async (id, operation) => {
     setActionId(id)
@@ -119,8 +131,6 @@ export function SupportChannelManager({ apiFetch, publicAppUrl }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         displayName: channelValue(channel, 'displayName', 'display_name'),
-        productLine: channelValue(channel, 'productLine', 'product_line'),
-        productModel: channelValue(channel, 'productModel', 'product_model'),
         isActive: nextActive
       })
     }), '更新产品支持二维码失败')
@@ -143,16 +153,18 @@ export function SupportChannelManager({ apiFetch, publicAppUrl }) {
           展示名称
           <input value={form.displayName} onChange={event => setForm({ ...form, displayName: event.target.value })} required maxLength="100" />
         </label>
-        <label>
-          产品线
-          <input value={form.productLine} onChange={event => setForm({ ...form, productLine: event.target.value })} required maxLength="50" />
-        </label>
-        <label>
-          产品型号
-          <input value={form.productModel} onChange={event => setForm({ ...form, productModel: event.target.value })} required maxLength="100" />
-        </label>
-        <button className="btn btn-primary" type="submit" disabled={submitting}>{submitting ? '创建中…' : '创建二维码'}</button>
+        <ProductSelector
+          products={products}
+          productLine={form.productLine}
+          productKey={form.productKey}
+          onProductLineChange={productLine => setForm(current => ({ ...current, productLine, productKey: '' }))}
+          onProductKeyChange={productKey => setForm(current => ({ ...current, productKey }))}
+          disabled={submitting}
+        />
+        <button className="btn btn-primary" type="submit" disabled={submitting || !form.productKey}>{submitting ? '创建中…' : '创建二维码'}</button>
       </form>
+
+      {!loading && products.length === 0 && <p className="support-manager__message" role="status">暂无具有有效资料的首发产品型号，暂时不能生成二维码。</p>}
 
       {error && <p className="support-manager__message" role="alert">{error}</p>}
       {copyUrl && <p className="support-manager__copy-url">支持链接：<a href={copyUrl}>{copyUrl}</a></p>}

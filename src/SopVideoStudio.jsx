@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSopVideoRendererSupport, renderSopVideo } from './sopVideoRenderer.js'
+import OfficialVideoImporter from './OfficialVideoImporter.jsx'
 import './sopVideoStudio.css'
 
 function formatDuration(seconds) {
@@ -27,6 +28,9 @@ export default function SopVideoStudio({ api = '/api' }) {
   const [publishedVideo, setPublishedVideo] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [providerStatus, setProviderStatus] = useState(null)
+  const [openMaicJob, setOpenMaicJob] = useState(null)
+  const [openMaicBusy, setOpenMaicBusy] = useState(false)
   const renderAbortRef = useRef(null)
 
   const rendererSupport = useMemo(() => getSopVideoRendererSupport(), [])
@@ -56,6 +60,43 @@ export default function SopVideoStudio({ api = '/api' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${api}/video/studio/providers`)
+      .then(response => response.json().then(data => ({ response, data })))
+      .then(({ response, data }) => {
+        if (!cancelled && response.ok && data?.ok) setProviderStatus(data.data)
+      })
+      .catch(() => {
+        if (!cancelled) setProviderStatus({ openmaic: { configured: false, ready: false, reason: '无法读取生成服务状态' } })
+      })
+    return () => { cancelled = true }
+  }, [api])
+
+  useEffect(() => {
+    const jobId = openMaicJob?.jobId
+    if (!jobId || !['queued', 'running'].includes(openMaicJob.status)) return undefined
+    let cancelled = false
+    let timer
+    const poll = async () => {
+      try {
+        const response = await fetch(`${api}/video/studio/openmaic/jobs/${encodeURIComponent(jobId)}`)
+        const data = await response.json().catch(() => null)
+        if (!response.ok || !data?.ok) throw new Error(responseError(data, '读取 OpenMAIC 任务失败'))
+        if (!cancelled) setOpenMaicJob(data.data)
+      } catch (pollError) {
+        if (!cancelled) setError(pollError.message)
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 5000)
+      }
+    }
+    timer = setTimeout(poll, 5000)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [api, openMaicJob?.jobId, openMaicJob?.status])
+
   useEffect(() => () => {
     renderAbortRef.current?.abort()
     if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -68,6 +109,7 @@ export default function SopVideoStudio({ api = '/api' }) {
     setStoryboard(null)
     setVideoBlob(null)
     setPublishedVideo(null)
+    setOpenMaicJob(null)
     setPreviewUrl(previous => {
       if (previous) URL.revokeObjectURL(previous)
       return ''
@@ -129,6 +171,29 @@ export default function SopVideoStudio({ api = '/api' }) {
 
   const cancelRender = () => renderAbortRef.current?.abort()
 
+  const handleOpenMaicDraft = async () => {
+    if (!storyboard || openMaicBusy || !providerStatus?.openmaic?.ready) return
+    setOpenMaicBusy(true)
+    setOpenMaicJob(null)
+    setError('')
+    setNotice('正在把已审核 SOP 提交给 OpenMAIC；生成期间可以继续使用当前页面。')
+    try {
+      const response = await fetch(`${api}/video/studio/openmaic/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sopId: storyboard.sourceSopId })
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.ok) throw new Error(responseError(data, 'OpenMAIC 草稿生成失败'))
+      setOpenMaicJob(data.data)
+      setNotice('OpenMAIC 已接收任务。完成后请先逐场景审核，再在 OpenMAIC 中导出 MP4。')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setOpenMaicBusy(false)
+    }
+  }
+
   const handlePublish = async () => {
     if (!storyboard || !videoBlob || publishing) return
     setPublishing(true)
@@ -166,6 +231,7 @@ export default function SopVideoStudio({ api = '/api' }) {
 
   return (
     <section className="sop-video-studio" aria-label="SOP 视频工坊">
+      <OfficialVideoImporter api={api} />
       <header className="sop-video-studio__hero">
         <div>
           <span className="sop-video-studio__eyebrow">管理员专用 · 浏览器本地生成</span>
@@ -254,17 +320,53 @@ export default function SopVideoStudio({ api = '/api' }) {
           )}
 
           {storyboard && (
-            <div className="sop-video-studio__actions">
-              {!rendering ? (
-                <button type="button" className="sop-video-studio__primary" onClick={handleRender} disabled={!rendererSupport.supported}>
-                  {videoBlob ? '重新生成字幕视频' : '生成 1080p 字幕 WebM'}
-                </button>
-              ) : (
-                <button type="button" className="sop-video-studio__secondary" onClick={cancelRender}>取消生成</button>
-              )}
-              {rendering && renderProgress && <span>正在生成 {Math.floor(renderProgress.elapsedSeconds)} / {renderProgress.durationSeconds} 秒</span>}
-              {selectedSop && <small>来源：{selectedSop.title}</small>}
-            </div>
+            <>
+              <section className="sop-video-studio__openmaic" aria-label="OpenMAIC 高品质草稿">
+                <div className="sop-video-studio__openmaic-copy">
+                  <span className="sop-video-studio__recommended">推荐</span>
+                  <div>
+                    <h4>OpenMAIC 智能课程草稿</h4>
+                    <p>生成带场景编排与可选配音的可审核草稿；确认内容后，再在独立 OpenMAIC 中导出 MP4。</p>
+                  </div>
+                </div>
+                <div className="sop-video-studio__openmaic-action">
+                  <span className={`sop-video-studio__provider-state ${providerStatus?.openmaic?.ready ? 'is-ready' : ''}`}>
+                    {providerStatus === null ? '正在检查服务…' : providerStatus.openmaic?.ready ? '服务已就绪' : providerStatus.openmaic?.reason || '服务未就绪'}
+                  </span>
+                  <button
+                    type="button"
+                    className="sop-video-studio__primary"
+                    onClick={handleOpenMaicDraft}
+                    disabled={openMaicBusy || !providerStatus?.openmaic?.ready || ['queued', 'running'].includes(openMaicJob?.status)}
+                  >
+                    {openMaicBusy ? '正在提交…' : ['queued', 'running'].includes(openMaicJob?.status) ? '正在生成草稿…' : '生成高品质草稿'}
+                  </button>
+                </div>
+                {openMaicJob && (
+                  <div className="sop-video-studio__openmaic-job">
+                    <div><b>{openMaicJob.status === 'succeeded' ? '草稿已完成' : openMaicJob.status === 'failed' ? '生成失败' : openMaicJob.message || '正在生成场景'}</b><span>{openMaicJob.progress || 0}%</span></div>
+                    <i><span style={{ width: `${openMaicJob.progress || 0}%` }} /></i>
+                    {openMaicJob.error && <p>{openMaicJob.error}</p>}
+                    {openMaicJob.classroomUrl && (
+                      <a href={openMaicJob.classroomUrl} target="_blank" rel="noreferrer">打开 OpenMAIC 逐场景审核 →</a>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              <div className="sop-video-studio__local-divider"><span>快速兜底：浏览器本地字幕视频</span></div>
+              <div className="sop-video-studio__actions">
+                {!rendering ? (
+                  <button type="button" className="sop-video-studio__secondary" onClick={handleRender} disabled={!rendererSupport.supported}>
+                    {videoBlob ? '重新生成本地 WebM' : '生成本地 1080p WebM'}
+                  </button>
+                ) : (
+                  <button type="button" className="sop-video-studio__secondary" onClick={cancelRender}>取消生成</button>
+                )}
+                {rendering && renderProgress && <span>正在生成 {Math.floor(renderProgress.elapsedSeconds)} / {renderProgress.durationSeconds} 秒</span>}
+                {selectedSop && <small>来源：{selectedSop.title}</small>}
+              </div>
+            </>
           )}
 
           {renderProgress && rendering && <div className="sop-video-studio__render-progress"><i style={{ width: `${Math.round((renderProgress.progress || 0) * 100)}%` }} /></div>}
@@ -287,4 +389,3 @@ export default function SopVideoStudio({ api = '/api' }) {
     </section>
   )
 }
-

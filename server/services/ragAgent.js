@@ -24,6 +24,17 @@ function dedupByIndex(results) {
   })
 }
 
+/**
+ * Agent 可以扩展检索词，但不能丢掉用户原始问题的检索结果。
+ * 原始问题结果放在前面，同一切块只保留一次。
+ */
+export function mergeAnchoredResults(anchorResults, agentResults) {
+  return dedupByIndex([
+    ...(Array.isArray(anchorResults) ? anchorResults : []),
+    ...(Array.isArray(agentResults) ? agentResults : [])
+  ])
+}
+
 /** 将检索结果格式化为 LLM 可读文本 */
 function formatRetrievedDocs(results, maxChars = 1500) {
   if (!results || results.length === 0) return '（未检索到相关内容）'

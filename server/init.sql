@@ -234,6 +234,10 @@ CREATE TABLE IF NOT EXISTS videos (
   duration_seconds INT DEFAULT 0,
   video_url VARCHAR(500) DEFAULT '',
   thumbnail_url VARCHAR(500) DEFAULT '',
+  source_provider VARCHAR(50) NOT NULL DEFAULT 'local',
+  external_id VARCHAR(160) DEFAULT NULL,
+  source_page_url VARCHAR(700) DEFAULT '',
+  source_priority SMALLINT NOT NULL DEFAULT 0,
   source_sop_id INT DEFAULT NULL,
   review_status VARCHAR(20) DEFAULT 'draft',
   publish_status VARCHAR(20) DEFAULT 'unpublished',
@@ -245,6 +249,7 @@ CREATE TABLE IF NOT EXISTS videos (
   INDEX idx_video_product (product_line, product_model),
   INDEX idx_video_category (category),
   INDEX idx_video_status (review_status, publish_status),
+  UNIQUE INDEX uq_video_external_source (source_provider, external_id),
   FOREIGN KEY (source_sop_id) REFERENCES sops(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

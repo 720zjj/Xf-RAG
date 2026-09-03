@@ -1,3 +1,20 @@
+import {
+  getDirectSupportIntent,
+  isDirectSupportEvidence,
+  isGettingStartedEvidence,
+  isGettingStartedQuestion,
+  isFactoryResetEvidence,
+  isFactoryResetQuestion,
+  isLiquidDamageEvidence,
+  isLiquidDamageQuestion,
+  isOfflinePackageEvidence,
+  isOfflinePackageQuestion,
+  isTranslationReplayEvidence,
+  isTranslationReplayQuestion,
+  isTranslationLanguageSwitchEvidence,
+  isTranslationLanguageSwitchQuestion
+} from './questionIntent.js'
+
 const MAX_EXCERPT_LENGTH = 1200
 const SAFETY_PATTERN = /(进水|拆机|电池|充电|恢复出厂|无响应|安全|危险)/
 
@@ -12,6 +29,11 @@ function numberOrNull(value) {
 
 function metadataFor(item) {
   return item?.metadata || item?.meta || {}
+}
+
+function sourceProductModel(item) {
+  const metadata = metadataFor(item)
+  return Object.hasOwn(metadata, 'sourceProductModel') ? metadata.sourceProductModel : (metadata.productModel || item?.productModel)
 }
 
 function isActive(item) {
@@ -56,20 +78,51 @@ function candidateScore(item) {
   return Number(item?.score ?? item?.rerankScore ?? 0)
 }
 
+function exactQuestionMatch(item, question) {
+  const normalizedQuestion = comparableText(question)
+  return normalizedQuestion.length >= 4 && comparableText(item?.excerpt || item?.text).includes(normalizedQuestion)
+}
+
 /** Normalizes only active retrieved records into a bounded, request-local evidence set. */
-export function selectEvidence(retrieved, { limit = 5, question = '' } = {}) {
+export function selectEvidence(retrieved, { limit = 5, question = '', requestedModel = '' } = {}) {
+  const safetyQuestion = SAFETY_PATTERN.test(String(question || ''))
+  const gettingStartedQuestion = isGettingStartedQuestion(question)
+  const translationLanguageSwitchQuestion = isTranslationLanguageSwitchQuestion(question)
+  const translationReplayQuestion = isTranslationReplayQuestion(question)
+  const factoryResetQuestion = isFactoryResetQuestion(question)
+  const liquidDamageQuestion = isLiquidDamageQuestion(question)
+  const offlinePackageQuestion = isOfflinePackageQuestion(question)
+  const directSupportIntent = getDirectSupportIntent(question)
   const active = (Array.isArray(retrieved) ? retrieved : [])
     .filter(item => isActive(item) && text(item?.excerpt || item?.text))
-    .sort((left, right) => candidateScore(right) - candidateScore(left))
-
-  const safetyQuestion = SAFETY_PATTERN.test(String(question || ''))
-  if (safetyQuestion) {
-    active.sort((left, right) => {
+    .sort((left, right) => {
+      const leftExact = exactQuestionMatch(left, question) ? 1 : 0
+      const rightExact = exactQuestionMatch(right, question) ? 1 : 0
+      const leftGettingStarted = gettingStartedQuestion && isGettingStartedEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightGettingStarted = gettingStartedQuestion && isGettingStartedEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftTranslationLanguage = translationLanguageSwitchQuestion && isTranslationLanguageSwitchEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightTranslationLanguage = translationLanguageSwitchQuestion && isTranslationLanguageSwitchEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftTranslationReplay = translationReplayQuestion && isTranslationReplayEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightTranslationReplay = translationReplayQuestion && isTranslationReplayEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftFactoryReset = factoryResetQuestion && isFactoryResetEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightFactoryReset = factoryResetQuestion && isFactoryResetEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftLiquidDamage = liquidDamageQuestion && isLiquidDamageEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightLiquidDamage = liquidDamageQuestion && isLiquidDamageEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftDirectSupport = directSupportIntent && isDirectSupportEvidence(question, left?.excerpt || left?.text) ? 1 : 0
+      const rightDirectSupport = directSupportIntent && isDirectSupportEvidence(question, right?.excerpt || right?.text) ? 1 : 0
+      const leftExactModel = requestedModel && text(sourceProductModel(left)) === requestedModel ? 1 : 0
+      const rightExactModel = requestedModel && text(sourceProductModel(right)) === requestedModel ? 1 : 0
       const leftSafety = String(metadataFor(left).riskLevel || left?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
       const rightSafety = String(metadataFor(right).riskLevel || right?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
-      return rightSafety - leftSafety || candidateScore(right) - candidateScore(left)
+      return rightDirectSupport - leftDirectSupport || rightTranslationLanguage - leftTranslationLanguage || rightTranslationReplay - leftTranslationReplay ||
+        rightFactoryReset - leftFactoryReset || rightLiquidDamage - leftLiquidDamage || rightOfflinePackage - leftOfflinePackage || rightGettingStarted - leftGettingStarted ||
+        ((leftFactoryReset || leftLiquidDamage || leftGettingStarted) && (rightFactoryReset || rightLiquidDamage || rightGettingStarted)
+          ? rightExactModel - leftExactModel
+          : 0) || rightExact - leftExact ||
+        (safetyQuestion ? rightSafety - leftSafety : 0) || candidateScore(right) - candidateScore(left)
     })
-  }
 
   const seen = new Set()
   const selected = []
@@ -79,7 +132,27 @@ export function selectEvidence(retrieved, { limit = 5, question = '' } = {}) {
     if (seen.has(key)) continue
     seen.add(key)
     const highRisk = String(metadataFor(item).riskLevel || item?.riskLevel || '').toLowerCase() === 'high'
-    selected.push(toEvidence(item, selected.length, safetyQuestion && highRisk ? 'safety' : 'best-match'))
+    const directTranslationLanguage = translationLanguageSwitchQuestion && isTranslationLanguageSwitchEvidence(item?.excerpt || item?.text)
+    const directTranslationReplay = translationReplayQuestion && isTranslationReplayEvidence(item?.excerpt || item?.text)
+    const directFactoryReset = factoryResetQuestion && isFactoryResetEvidence(item?.excerpt || item?.text)
+    const directLiquidDamage = liquidDamageQuestion && isLiquidDamageEvidence(item?.excerpt || item?.text)
+    const directGettingStarted = gettingStartedQuestion && isGettingStartedEvidence(item?.excerpt || item?.text)
+    const directOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(item?.excerpt || item?.text)
+    const directSupport = directSupportIntent && isDirectSupportEvidence(question, item?.excerpt || item?.text)
+    const directIntent = directSupport || directTranslationLanguage || directTranslationReplay || directFactoryReset || directLiquidDamage || directOfflinePackage || directGettingStarted
+    const selectedEvidence = toEvidence(
+      item,
+      selected.length,
+      safetyQuestion && highRisk ? 'safety' : directIntent ? 'intent-match' : 'best-match'
+    )
+    if (translationLanguageSwitchQuestion) selectedEvidence.coversQuestion = directTranslationLanguage
+    if (translationReplayQuestion) selectedEvidence.coversQuestion = directTranslationReplay
+    if (factoryResetQuestion) selectedEvidence.coversQuestion = directFactoryReset
+    if (liquidDamageQuestion) selectedEvidence.coversQuestion = directLiquidDamage
+    if (gettingStartedQuestion) selectedEvidence.coversQuestion = directGettingStarted
+    if (offlinePackageQuestion) selectedEvidence.coversQuestion = directOfflinePackage
+    if (directSupportIntent) selectedEvidence.coversQuestion = directSupport
+    selected.push(selectedEvidence)
     if (selected.length >= limit) break
   }
   return selected

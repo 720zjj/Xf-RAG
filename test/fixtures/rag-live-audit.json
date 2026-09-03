@@ -1,0 +1,145 @@
+[
+  {
+    "id": "L4-01",
+    "productModel": "翻译机4.0",
+    "question": "翻译机怎么切换翻译语言？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["上滑"], ["语种"]],
+    "forbidden": ["蓝红按键", "语种列表 → 自动检测"],
+    "expectedSourceTitlesAny": ["官方常见问题", "用户操作手册", "快速入门指南"]
+  },
+  {
+    "id": "L4-02",
+    "productModel": "翻译机4.0",
+    "question": "怎样进入拍照翻译？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["右上角", "向左滑", "左滑"]],
+    "expectedSourceTitlesAny": ["官方常见问题", "用户操作手册"]
+  },
+  {
+    "id": "L4-03",
+    "productModel": "翻译机4.0",
+    "question": "离线语言包怎么下载？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["更多设置"], ["离线包管理"]],
+    "expectedSourceTitlesAny": ["官方常见问题", "用户操作手册", "售后FAQ"]
+  },
+  {
+    "id": "L4-04",
+    "productModel": "翻译机4.0",
+    "question": "翻译结果可以重新播放吗？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["点按", "点读"], ["复听", "再次收听", "重新播放"]],
+    "forbidden": ["暂不能确认"],
+    "expectedSourceTitlesAny": ["用户操作手册"]
+  },
+  {
+    "id": "L4-05",
+    "productModel": "翻译机4.0",
+    "question": "如何恢复出厂设置？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["设置"], ["系统"], ["关于本机"], ["恢复出厂"]],
+    "expectedSourceTitlesAny": ["官方常见问题", "售后FAQ", "用户操作手册"]
+  },
+  {
+    "id": "L4-06",
+    "productModel": "翻译机4.0",
+    "question": "翻译机进水了怎么办？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["停止使用", "立即关机"], ["不要继续充电", "不要尝试充电", "禁止充电"], ["售后"]],
+    "forbidden": ["继续开机测试", "自行拆机"],
+    "expectedSourceTitlesAny": ["安全说明"]
+  },
+  {
+    "id": "L4-07",
+    "productModel": "翻译机4.0",
+    "question": "翻译机第一次使用怎么操作？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["解锁"], ["语音翻译"], ["语种"]],
+    "expectedSourceTitlesAny": ["官方常见问题", "快速入门指南", "用户操作手册"]
+  },
+  {
+    "id": "L4-08",
+    "productModel": "翻译机4.0",
+    "question": "翻译机支持卫星联网吗？",
+    "expectedTrust": "refuse",
+    "requiredAnyGroups": [["没有", "未", "不能确认", "暂不能确认"]],
+    "forbidRecommendations": true
+  },
+  {
+    "id": "L2-01",
+    "productModel": "翻译机2.0",
+    "question": "翻译机怎么切换翻译语言？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["语音翻译"], ["语种列表"]],
+    "forbidden": ["屏幕下方往上滑", "底部向上滑", "蓝红按键"],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-02",
+    "productModel": "翻译机2.0",
+    "question": "多语种自动检测怎么使用？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["语种列表"], ["自动检测"], ["在线"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-03",
+    "productModel": "翻译机2.0",
+    "question": "双屏翻译机的语音键怎么用？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["实体按键", "机械按键"], ["触控语音键", "轻触"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-04",
+    "productModel": "翻译机2.0",
+    "question": "旁听同传怎么使用？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["旁听同传"], ["语种对", "语种"], ["开始"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-05",
+    "productModel": "翻译机2.0",
+    "question": "通话翻译怎么使用？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["联网"], ["蓝牙"], ["通话翻译"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"],
+    "expectedVideoTitlesAny": ["通话翻译"]
+  },
+  {
+    "id": "L2-06",
+    "productModel": "翻译机2.0",
+    "question": "翻译播报怎么切换男声或女声？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["高级设置"], ["播报声音"], ["男声", "女声"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-07",
+    "productModel": "翻译机2.0",
+    "question": "翻译结果可以重新播放吗？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["点按", "点读"], ["复听", "再次收听", "重新播放"]],
+    "forbidden": ["暂不能确认"],
+    "expectedSourceTitlesAny": ["用户操作手册"]
+  },
+  {
+    "id": "L2-08",
+    "productModel": "翻译机2.0",
+    "question": "双屏翻译机掉进水里还能继续用吗？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["不代表可以浸水", "不代表设备可以浸水", "不能浸水"], ["停止继续使用", "停止使用"], ["售后"]],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  },
+  {
+    "id": "L2-09",
+    "productModel": "翻译机2.0",
+    "question": "双屏翻译机2.0如何用屏幕底部上滑切换语种？",
+    "expectedTrust": "answer",
+    "requiredAnyGroups": [["语种列表"]],
+    "forbidden": ["从屏幕下方往上滑即可", "底部向上滑即可"],
+    "expectedSourceTitlesAny": ["双屏翻译机2.0官方常见问题"]
+  }
+]

@@ -49,16 +49,26 @@ test('前端使用结构化答案阅读器和视频解决反馈', () => {
   assert.match(source, /ragStreamingDone && ragThinking\.length > 0/)
   assert.match(source, /trustedAnswerPresentation/)
   assert.match(source, /answerBlocks/)
+  assert.match(source, /trusted-answer-card/)
+  assert.match(source, /trusted-answer-group/)
   assert.match(source, /ragTraceId/)
   assert.match(source, /\/rag\/feedback/)
+  assert.match(source, /\/rag\/feedback-summary/)
+  assert.match(source, /顾客回答反馈/)
+  assert.match(source, /aria-pressed/)
   assert.match(source, /已解决/)
   assert.match(source, /未解决/)
   assert.match(source, /getSourcePresentation/)
   assert.match(source, /查看原文/)
   assert.match(source, /检索详情/)
+  assert.match(source, /source_provider === 'iflytek-h5'/)
+  assert.match(source, /preload="metadata"/)
+  assert.match(source, /playsInline/)
+  assert.match(source, /打开官方视频来源/)
+  assert.doesNotMatch(source, /<video[^>]+autoPlay/)
 })
 
-test('所有前端问答请求保留产品过滤契约', () => {
+test('所有前端问答请求只提交服务端可信产品范围契约', () => {
   const source = read('../src/App.jsx')
 
   for (const [endpoint, start, end] of [
@@ -68,7 +78,8 @@ test('所有前端问答请求保留产品过滤契约', () => {
   ]) {
     const request = source.slice(source.indexOf(start), source.indexOf(end))
     assert.match(request, new RegExp(`/rag/${endpoint}`))
-    assert.match(request, /productLine: effectiveProductLine/)
-    assert.match(request, /productModel: effectiveProductModel/)
+    assert.match(request, /\.\.\.ragScopePayload/)
+    assert.doesNotMatch(request, /productLine:\s*effectiveProductLine/)
+    assert.doesNotMatch(request, /productModel:\s*effectiveProductModel/)
   }
 })

@@ -2,10 +2,22 @@ import { Router } from 'express'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { authMiddleware, isAdmin } from '../middleware/auth.js'
+import { authMiddleware, isAdmin, supportGuestOrAuthMiddleware } from '../middleware/auth.js'
 import { createRateLimit } from '../middleware/rateLimit.js'
 import pool from '../db.js'
 import { buildSopVideoStoryboard } from '../services/sopVideoStoryboard.js'
+import {
+  checkOpenMaicVideoService,
+  getOpenMaicVideoDraftJob,
+  submitOpenMaicVideoDraft
+} from '../services/openMaicVideoService.js'
+import {
+  getOfficialVideoCatalog,
+  isTrustedOfficialThumbnailUrl,
+  isTrustedOfficialVideoUrl,
+  OFFICIAL_VIDEO_PROVIDER,
+  selectOfficialVideos
+} from '../services/officialVideoCatalog.js'
 
 const router = Router()
 const uploadRateLimit = createRateLimit({ windowMs: 60 * 60 * 1000, max: 20 })
@@ -118,6 +130,46 @@ router.get('/studio/sops', authMiddleware, requireAdmin, async (req, res) => {
   }
 })
 
+// GET /api/video/studio/providers - 管理端检查可选的视频生成通道
+router.get('/studio/providers', authMiddleware, requireAdmin, async (req, res) => {
+  const openmaic = await checkOpenMaicVideoService()
+  res.json({
+    ok: true,
+    data: {
+      local: { configured: true, ready: true, output: 'webm', mode: 'browser' },
+      openmaic
+    }
+  })
+})
+
+// POST /api/video/studio/openmaic/jobs - 使用服务端可信 SOP 创建 OpenMAIC 草稿
+router.post('/studio/openmaic/jobs', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const sopId = Number(req.body?.sopId)
+    if (!Number.isInteger(sopId) || sopId <= 0) return res.status(400).json({ ok: false, error: '请选择有效的 SOP' })
+    const [rows] = await pool.query("SELECT * FROM sops WHERE id = ? AND review_status = 'approved'", [sopId])
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'SOP 不存在或尚未审核通过' })
+    const job = await submitOpenMaicVideoDraft(rows[0])
+    res.status(202).json({ ok: true, data: job })
+  } catch (err) {
+    console.error('[video/studio/openmaic/jobs]', err)
+    const status = err instanceof TypeError ? 422 : 503
+    res.status(status).json({ ok: false, error: String(err?.message || 'OpenMAIC 草稿生成失败').slice(0, 300) })
+  }
+})
+
+// GET /api/video/studio/openmaic/jobs/:jobId - 固定从已配置服务查询，客户端不能指定上游地址
+router.get('/studio/openmaic/jobs/:jobId', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const job = await getOpenMaicVideoDraftJob(req.params.jobId)
+    res.json({ ok: true, data: job })
+  } catch (err) {
+    console.error('[video/studio/openmaic/job]', err)
+    const status = err instanceof TypeError ? 400 : 503
+    res.status(status).json({ ok: false, error: String(err?.message || '读取 OpenMAIC 任务失败').slice(0, 300) })
+  }
+})
+
 // POST /api/video/studio/storyboard - 从服务端已审核 SOP 生成确定性分镜
 router.post('/studio/storyboard', authMiddleware, requireAdmin, async (req, res) => {
   try {
@@ -177,6 +229,96 @@ router.post('/studio/publish', authMiddleware, requireAdmin, async (req, res) =>
     if (conn) await conn.rollback().catch(() => {})
     console.error('[video/studio/publish]', err)
     res.status(500).json({ ok: false, error: '发布视频失败' })
+  } finally {
+    conn?.release()
+  }
+})
+
+// GET /api/video/official-catalog - 只返回代码内经过核对的官方视频目录，不运行时抓取 H5。
+router.get('/official-catalog', authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const catalog = getOfficialVideoCatalog()
+    const [existing] = await pool.query(
+      'SELECT id, external_id, publish_status, updated_at FROM videos WHERE source_provider = ?',
+      [OFFICIAL_VIDEO_PROVIDER]
+    )
+    const existingByExternalId = new Map(existing.map(item => [item.external_id, item]))
+    const list = catalog.map(item => {
+      const imported = existingByExternalId.get(item.externalId)
+      return {
+        ...item,
+        imported: Boolean(imported),
+        videoId: imported?.id || null,
+        publishStatus: imported?.publish_status || null,
+        importedAt: imported?.updated_at || null
+      }
+    })
+    res.json({
+      ok: true,
+      data: {
+        list,
+        total: list.length,
+        imported: list.filter(item => item.imported).length,
+        models: [...new Set(list.map(item => item.productModel))]
+      }
+    })
+  } catch (err) {
+    console.error('[video/official-catalog]', err)
+    res.status(500).json({ ok: false, error: '读取官方视频目录失败' })
+  }
+})
+
+// POST /api/video/official-catalog/import - 只接受可信目录中的 externalId，禁止提交任意外链。
+router.post('/official-catalog/import', authMiddleware, requireAdmin, async (req, res) => {
+  let conn
+  try {
+    const selected = selectOfficialVideos(req.body?.externalIds)
+    if (selected.some(item => !isTrustedOfficialVideoUrl(item.videoUrl) || !isTrustedOfficialThumbnailUrl(item.thumbnailUrl))) {
+      return res.status(500).json({ ok: false, error: '官方视频目录包含未通过来源校验的地址' })
+    }
+
+    conn = await pool.getConnection()
+    await conn.beginTransaction()
+    const externalIds = selected.map(item => item.externalId)
+    const [existing] = await conn.query(
+      `SELECT external_id FROM videos
+       WHERE source_provider = ? AND external_id IN (${externalIds.map(() => '?').join(', ')})`,
+      [OFFICIAL_VIDEO_PROVIDER, ...externalIds]
+    )
+    const existingIds = new Set(existing.map(item => item.external_id))
+
+    for (const item of selected) {
+      await conn.query(
+        `INSERT INTO videos
+          (title, description, brand, product_line, product_model, category, tags, duration_seconds,
+           video_url, thumbnail_url, source_provider, external_id, source_page_url, source_priority,
+           review_status, publish_status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 'published', ?)
+         ON DUPLICATE KEY UPDATE
+           title = VALUES(title), description = VALUES(description), brand = VALUES(brand),
+           product_line = VALUES(product_line), product_model = VALUES(product_model), category = VALUES(category),
+           tags = VALUES(tags), duration_seconds = VALUES(duration_seconds), video_url = VALUES(video_url),
+           thumbnail_url = VALUES(thumbnail_url), source_page_url = VALUES(source_page_url),
+           source_priority = VALUES(source_priority), review_status = 'approved', publish_status = 'published'`,
+        [item.title, item.description, item.brand, item.productLine, item.productModel, item.category,
+          JSON.stringify(item.tags), item.durationSeconds, item.videoUrl, item.thumbnailUrl,
+          item.sourceProvider, item.externalId, item.sourcePageUrl, item.sourcePriority, req.user.id]
+      )
+    }
+    await conn.commit()
+    res.status(201).json({
+      ok: true,
+      data: {
+        selected: selected.length,
+        created: selected.filter(item => !existingIds.has(item.externalId)).length,
+        updated: selected.filter(item => existingIds.has(item.externalId)).length
+      }
+    })
+  } catch (err) {
+    if (conn) await conn.rollback().catch(() => {})
+    const status = err instanceof TypeError ? 400 : 500
+    if (status === 500) console.error('[video/official-catalog/import]', err)
+    res.status(status).json({ ok: false, error: status === 400 ? err.message : '导入官方视频失败' })
   } finally {
     conn?.release()
   }
@@ -359,7 +501,7 @@ router.put('/:id', authMiddleware, requireAdmin, async (req, res) => {
 })
 
 // POST /api/video/:id/resolve - 标记视频解决了问题
-router.post('/:id/resolve', authMiddleware, async (req, res) => {
+router.post('/:id/resolve', supportGuestOrAuthMiddleware, async (req, res) => {
   let conn
   try {
     const qaIdValue = req.body?.qaId

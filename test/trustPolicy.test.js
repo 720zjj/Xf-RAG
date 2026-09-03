@@ -56,6 +56,16 @@ test('危险越权请求在检索前拒答', () => {
   assert.equal(result.reasonCode, 'unsafe-request')
 })
 
+test('资料外医疗测量能力在宽泛产品片段命中前拒答', () => {
+  const result = decideTrust({
+    question: '翻译机可以测量血压吗？',
+    evidence: [{ coversQuestion: true, rerankScore: 0.99 }]
+  })
+  assert.equal(result.level, 'refuse')
+  assert.equal(result.reasonCode, 'unsupported-health-capability')
+  assert.match(result.userMessage, /没有说明.*医疗健康测量能力/)
+})
+
 test('已覆盖但资料范围有限时保守回答', () => {
   const result = decideTrust({
     question: '没有网络时还能翻译吗？',

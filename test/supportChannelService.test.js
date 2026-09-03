@@ -15,12 +15,12 @@ test('二维码入口编号使用 URL 安全的至少 128 bit 随机值', () => 
   assert.ok(code.length >= 22)
 })
 
-test('二维码配置必须包含展示名称、产品线和产品型号', () => {
-  assert.deepEqual(normalizeSupportChannelInput({ displayName: ' T9 ', productLine: ' 翻译机 ', productModel: ' T9 ' }), {
-    displayName: 'T9', productLine: '翻译机', productModel: 'T9'
+test('二维码配置只接受展示名称和服务端产品标识', () => {
+  assert.deepEqual(normalizeSupportChannelInput({ displayName: ' 商品二维码 ', productKey: ' product_trusted ' }), {
+    displayName: '商品二维码', productKey: 'product_trusted'
   })
-  assert.throws(() => normalizeSupportChannelInput({ displayName: 'T9', productLine: '', productModel: '' }), /产品线/)
-  assert.throws(() => normalizeSupportChannelInput({ displayName: 'x'.repeat(101), productLine: 'line', productModel: 'model' }), /展示名称/)
+  assert.throws(() => normalizeSupportChannelInput({ displayName: '商品二维码', productLine: '伪造产品线', productModel: '伪造型号' }), /选择产品型号/)
+  assert.throws(() => normalizeSupportChannelInput({ displayName: 'x'.repeat(101), productKey: 'product_trusted' }), /展示名称/)
 })
 
 test('PUBLIC_APP_URL 必须是绝对 HTTP(S) 地址，生产环境必须 HTTPS 且不能 localhost', () => {
@@ -41,10 +41,16 @@ test('support channel service uses parameterized CRUD and resolves active channe
     if (sql.startsWith('INSERT')) return [{ insertId: 9 }]
     return [{ affectedRows: 1 }]
   }
-  const service = createSupportChannelService({ query, publicAppUrl: 'https://help.example.com', codeFactory: () => 'abcdefghijklmnopqrstuv' })
+  const product = { productKey: 'product_trusted', productLine: '翻译机', productModel: '翻译机4.0' }
+  const service = createSupportChannelService({
+    query,
+    publicAppUrl: 'https://help.example.com',
+    codeFactory: () => 'abcdefghijklmnopqrstuv',
+    resolveProduct: async key => key === product.productKey ? product : null
+  })
   assert.deepEqual(await service.list(7), rows)
-  assert.equal((await service.create({ createdBy: 7, displayName: 'T9', productLine: '翻译机', productModel: 'T9' })).id, 9)
-  assert.equal((await service.update(4, { displayName: 'T9', productLine: '翻译机', productModel: 'T9', isActive: false })).affectedRows, 1)
+  assert.equal((await service.create({ createdBy: 7, displayName: '商品二维码', productKey: 'product_trusted' })).id, 9)
+  assert.equal((await service.update(4, { displayName: '商品二维码', isActive: false })).affectedRows, 1)
   assert.equal((await service.rotate(4)).affectedRows, 1)
   assert.deepEqual(await service.resolve('abcdefghijklmnopqrstuv'), rows[0])
   assert.equal(service.buildSupportUrl('abcdefghijklmnopqrstuv'), 'https://help.example.com/support/abcdefghijklmnopqrstuv')
@@ -54,7 +60,8 @@ test('support channel service uses parameterized CRUD and resolves active channe
 test('未知、格式非法或停用的入口 resolve 返回 null', async () => {
   const service = createSupportChannelService({
     query: async () => [[]],
-    publicAppUrl: 'https://help.example.com'
+    publicAppUrl: 'https://help.example.com',
+    resolveProduct: async () => null
   })
   assert.equal(await service.resolve('too-short'), null)
   assert.equal(await service.resolve('abcdefghijklmnopqrstuv'), null)
@@ -65,9 +72,27 @@ test('写入时将数据库重复约束错误保留给路由映射为冲突响�
   const service = createSupportChannelService({
     query: async () => { throw duplicateError },
     publicAppUrl: 'https://help.example.com',
-    codeFactory: () => 'abcdefghijklmnopqrstuv'
+    codeFactory: () => 'abcdefghijklmnopqrstuv',
+    resolveProduct: async () => ({ productKey: 'product_trusted', productLine: '翻译机', productModel: '翻译机4.0' })
   })
-  const input = { createdBy: 7, displayName: 'T9', productLine: '翻译机', productModel: 'T9' }
+  const input = { createdBy: 7, displayName: '商品二维码', productKey: 'product_trusted' }
   await assert.rejects(() => service.create(input), error => error === duplicateError)
-  await assert.rejects(() => service.update(4, input), error => error === duplicateError)
+  await assert.rejects(() => service.update(4, { displayName: '商品二维码' }), error => error === duplicateError)
+})
+
+test('未知产品标识不能创建二维码，前端自报产品文本不会被使用', async () => {
+  let queried = false
+  const service = createSupportChannelService({
+    query: async () => { queried = true; return [{ insertId: 1 }] },
+    publicAppUrl: 'https://help.example.com',
+    resolveProduct: async () => null
+  })
+  await assert.rejects(() => service.create({
+    createdBy: 7,
+    displayName: '伪造二维码',
+    productKey: 'product_unknown',
+    productLine: '其他产品',
+    productModel: '其他型号'
+  }), /不存在|有效资料/)
+  assert.equal(queried, false)
 })

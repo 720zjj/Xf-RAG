@@ -4,11 +4,21 @@ export const DEFAULT_TRUST_POLICY = Object.freeze({
 })
 
 const UNSAFE_PATTERN = /(管理员密码|管理员账号|api[\s_-]?key|访问令牌|忽略(?:前文|之前|资料|指令)|系统提示|system\s*prompt)/i
+const UNSAFE_DEVICE_MODIFICATION_PATTERN = /(刷机|解除系统限制|解锁\s*bootloader|bootloader|获取\s*root|root\s*权限)/i
+const UNSUPPORTED_HEALTH_CAPABILITY_PATTERN = /(测量|检测|监测|测)(?:血压|血糖|心率|血氧|体温)/i
 
 const REFUSALS = Object.freeze({
   'unsafe-request': {
     userMessage: '这个请求不属于产品资料问答范围，我不能提供账号、密码、密钥或执行忽略规则的要求。',
     suggestions: ['请改为咨询产品功能、操作步骤或故障现象。']
+  },
+  'unsafe-device-modification': {
+    userMessage: '当前资料没有提供安全、受支持的刷机或解除系统限制方法，不能依据相近内容给出这类高风险操作步骤。',
+    suggestions: ['如设备功能异常，请联系官方售后确认受支持的系统恢复或检修方式。']
+  },
+  'unsupported-health-capability': {
+    userMessage: '当前产品资料没有说明翻译机具备血压、血糖、心率、血氧或体温等医疗健康测量能力，因此无法确认支持这类功能。',
+    suggestions: ['请使用具备相应资质的专用测量设备；如需确认产品功能，请联系人工客服。']
   },
   'model-not-covered': {
     userMessage: '当前知识库没有该型号对应的有效资料，不能把其他型号的说明套用过来。',
@@ -75,6 +85,8 @@ export function decideTrust({
   const text = String(question || '').trim()
   const explicitModel = String(detectedModel || requestedModel || '').trim()
 
+  if (UNSUPPORTED_HEALTH_CAPABILITY_PATTERN.test(text)) return refusal('unsupported-health-capability', currentPolicy)
+  if (UNSAFE_DEVICE_MODIFICATION_PATTERN.test(text)) return refusal('unsafe-device-modification', currentPolicy)
   if (UNSAFE_PATTERN.test(text)) return refusal('unsafe-request', currentPolicy)
 
   if (explicitModel) {

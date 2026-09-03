@@ -27,6 +27,14 @@ test('前端使用服务端任务状态轮询，并提供重试和取消操作',
   assert.match(styles, /\.document-job-progress/)
 })
 
+test('管理员资料上传不依赖重复的前端初始化按钮', () => {
+  const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /label: '资料管理'/)
+  assert.doesNotMatch(app, /初始化助手|初始化状态|handleInit|initialized/)
+  assert.match(app, /if \(!uploadedFile\) return/)
+  assert.match(app, /disabled=\{!uploadedFile \|\| uploadLoading\}/)
+})
+
 test('README 说明 Redis 和独立文档 Worker 的本机启动方式', () => {
   const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8')
   assert.match(readme, /docker start xf-rag-redis/)

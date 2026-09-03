@@ -13,7 +13,7 @@ import uploadAssetRoutes from './routes/uploadAssets.js'
 import supportChannelRoutes from './routes/supportChannels.js'
 import pool, { checkDatabase, closeDatabase } from './db.js'
 import { getJwtSecret } from './middleware/auth.js'
-import { assertRuntimeConfig } from './config/runtimeConfig.js'
+import { assertRuntimeConfig, parseTrustProxyConfig } from './config/runtimeConfig.js'
 import { requestContextMiddleware, requestLogMiddleware } from './middleware/requestContext.js'
 import { reconcileQueuedDocumentJobs } from './services/documentJobService.js'
 import { checkRedisReadiness } from './queues/documentQueue.js'
@@ -31,6 +31,8 @@ assertRuntimeConfig()
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3000
+const trustProxy = parseTrustProxyConfig(process.env.TRUST_PROXY)
+if (trustProxy) app.set('trust proxy', trustProxy)
 app.disable('x-powered-by')
 app.use(requestContextMiddleware)
 app.use(requestLogMiddleware())
@@ -51,7 +53,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Frame-Options', 'DENY')
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://static.xftrans.cn; media-src 'self' blob: https://static.xftrans.cn; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
     return res.status(403).json({ ok: false, error: '拒绝跨站请求' })
   }
@@ -101,6 +103,11 @@ app.get('/api/health', async (req, res) => {
     },
     agentEnabled: isAgentEnabled()
   })
+})
+
+// 未匹配的 API 必须返回 JSON 404，避免被下面的 SPA 回退伪装成成功页面。
+app.use('/api', (req, res) => {
+  res.status(404).json({ ok: false, error: 'API 接口不存在' })
 })
 
 // SPA 回退

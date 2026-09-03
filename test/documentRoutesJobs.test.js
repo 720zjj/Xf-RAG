@@ -20,6 +20,18 @@ test('文档任务 API 提供读取、重试和取消入口', () => {
   assert.match(source, /requestDocumentJobCancel/)
 })
 
+test('资料写操作全部要求管理员且上传鉴权发生在文件落盘之前', () => {
+  for (const declaration of [
+    "router.post('/upload', authMiddleware, requireAdmin, documentUploadRateLimit, upload.single('file')",
+    "router.post('/:id/reparse', authMiddleware, requireAdmin,",
+    "router.post('/:id/retry', authMiddleware, requireAdmin,",
+    "router.post('/:id/cancel', authMiddleware, requireAdmin,",
+    "router.delete('/:id', authMiddleware, requireAdmin,"
+  ]) {
+    assert.ok(source.includes(declaration), `missing administrator boundary: ${declaration}`)
+  }
+})
+
 test('仍在排队或处理的文档必须先取消才能删除', () => {
   assert.match(source, /DOCUMENT_STATUS\.queued/)
   assert.match(source, /DOCUMENT_STATUS\.processing/)

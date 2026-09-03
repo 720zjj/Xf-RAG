@@ -2,7 +2,10 @@ import { selectEvidence } from './evidenceService.js'
 import { decideTrust, modelMatches } from './trustPolicy.js'
 import { createTrustedAnswer } from './trustedAnswerService.js'
 
-const MODEL_PATTERN = /\b([A-Z]{1,8}(?:[-_][A-Z0-9]+|[-_]?\d+(?:\.\d+)?)(?:[-_][A-Z0-9._-]+)?)\b/i
+// Generic hardware model codes in this project always contain a digit. Requiring
+// one keeps network and interface names such as Wi-Fi and USB-C from being
+// mistaken for an explicit product model while retaining ZY-T9, X1 and V2.0.
+const MODEL_PATTERN = /\b(?=[A-Z0-9._-]*\d)([A-Z]{1,8}(?:[-_][A-Z0-9]+|[-_]?\d+(?:\.\d+)?)(?:[-_][A-Z0-9._-]+)?)\b/i
 const TRANSLATOR_MODEL_PATTERN = /(翻译机\s*[0-9]+(?:\.[0-9]+)?(?:标准版|星火版)?)/
 
 /** Extract only an explicit model spelling; ambiguous conversational names return empty. */
@@ -32,7 +35,7 @@ export async function runTrustedRagRequest({
 } = {}) {
   const detected = detectedModel || detectExplicitModel(effectiveQuestion)
   const explicitModel = detected || requestedModel
-  const selectedEvidence = selectEvidence(retrieved, { question: effectiveQuestion })
+  const selectedEvidence = selectEvidence(retrieved, { question: effectiveQuestion, requestedModel })
   const evidence = explicitModel
     ? selectedEvidence.filter(item => !item.productModel || modelMatches(item.productModel, explicitModel))
     : selectedEvidence
@@ -49,6 +52,7 @@ export async function runTrustedRagRequest({
     question: effectiveQuestion,
     evidence,
     decision,
+    requestedModel,
     generate
   })
   return { ...answer, evidence, endpoint, effectiveQuestion }

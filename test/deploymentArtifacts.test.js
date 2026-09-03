@@ -61,6 +61,26 @@ test('Dockerfile 使用 Node 22 Debian 多阶段镜像及精简生产依赖', ()
 
   assert.match(dockerfile, /FROM node:22-bookworm-slim AS build/)
   assert.match(dockerfile, /npm ci --omit=dev/)
+  assert.match(dockerfile, /--mount=type=cache,target=\/root\/\.npm/)
+})
+
+test('Docker 构建上下文排除本机数据、日志、备份和个人工作产物', () => {
+  const dockerignore = readRepositoryFile('.dockerignore')
+
+  for (const entry of [
+    '.env*',
+    'uploads',
+    'backups',
+    'logs',
+    '.runtime',
+    '.tmp-recovery-audit',
+    'report',
+    'browser-*.png',
+    'step*.png'
+  ]) {
+    assert.equal(dockerignore.split(/\r?\n/).includes(entry), true, `${entry} 应从 Docker 构建上下文排除`)
+  }
+  assert.match(dockerignore, /^!deploy\/\.env\.compose\.example$/m)
 })
 
 test('npm 提供 Compose 配置校验脚本', () => {
@@ -78,7 +98,8 @@ test('Compose 环境模板包含必要变量且不含真实凭据', () => {
     'MYSQL_APP_PASSWORD',
     'JWT_SECRET',
     'PUBLIC_APP_URL',
-    'APP_BIND_ADDRESS'
+    'APP_BIND_ADDRESS',
+    'TRUST_PROXY'
   ]) {
     assert.match(environmentTemplate, new RegExp(`^${variable}=`, 'm'))
   }

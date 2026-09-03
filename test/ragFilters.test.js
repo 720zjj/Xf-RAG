@@ -36,3 +36,19 @@ test('已废弃内容始终被排除', () => {
   const result = filterChunkBundle(bundle)
   assert.deepEqual(result.contents, ['通用内容', 'A 型号内容'])
 })
+
+test('可信资料 ID 范围严格排除空型号的其他资料，并补齐选定型号元数据', () => {
+  const result = filterChunkBundle(bundle, {
+    productLine: '翻译机',
+    productModel: '翻译机4.0',
+    allowedDocumentIds: [2]
+  })
+  assert.deepEqual(result.contents, ['A 型号内容'])
+  assert.equal(result.metadata[0].productModel, '翻译机4.0')
+  assert.equal(result.filterRequested, true)
+})
+
+test('显式空资料范围不会回退到全部文档', () => {
+  const result = filterChunkBundle(bundle, { allowedDocumentIds: [] })
+  assert.equal(result.contents.length, 0)
+})

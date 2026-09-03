@@ -1,18 +1,32 @@
 import pool from '../db.js'
+import {
+  getDirectSupportIntent,
+  isGettingStartedQuestion,
+  isTranslationLanguageSwitchQuestion,
+  isFactoryResetQuestion,
+  isLiquidDamageQuestion,
+  isOfflinePackageQuestion,
+  isTranslationReplayEvidence,
+  isTranslationReplayQuestion
+} from './questionIntent.js'
 
 const STOP_WORDS = new Set([
   '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着',
   '没有', '看', '好', '自己', '这', '他', '她', '它', '怎么', '如何', '什么', '为什么', '可以', '能', '吗', '呢', '吧', '啊', '请问', '一下',
-  '怎样', '哪个', '哪些', '翻译机', '使用', '操作', '功能', '问题', '需要', '时候', '已经', '正常', '设备'
+  '怎样', '哪个', '哪些', '翻译机', '使用', '操作', '功能', '问题', '需要', '时候', '已经', '正常', '设备',
+  '翻译', '译机'
 ])
 
 const TROUBLESHOOT_PATTERNS = ['连不上', '无法', '失败', '异常', '错误', '搜不到', '没反应', '不能', '掉线', '排查', '修复', '重置']
 const LEARN_PATTERNS = ['怎么', '如何', '教程', '步骤', '操作', '使用', '设置', '演示', '入门']
 const TROUBLESHOOT_VIDEO_TERMS = ['排查', '失败', '异常', '无法', '错误', '重置', '修复', '解决', '故障']
 const LEARN_VIDEO_TERMS = ['教程', '演示', '操作', '入门', '基础', '使用', '设置', '连接']
+const TRANSLATION_LANGUAGE_ACTION_TERMS = ['切换', '更换', '修改', '选择', '设置', '调整']
+const TRANSLATION_LANGUAGE_OBJECT_TERMS = ['翻译语言', '翻译语种', '互译语言', '互译语种', '语言对', '源语言', '目标语言']
 
 function textIncludes(value, keyword) {
-  return String(value || '').toLocaleLowerCase().includes(String(keyword || '').toLocaleLowerCase())
+  const normalize = input => String(input || '').toLocaleLowerCase().replace(/[\s_-]+/g, '')
+  return normalize(value).includes(normalize(keyword))
 }
 
 function toArray(value) {
@@ -44,6 +58,38 @@ function videoSearchText(video) {
     video.product_model,
     chapterText(toArray(video.chapters))
   ].filter(Boolean).join(' ')
+}
+
+function coversTranslationLanguageSwitch(video) {
+  const text = videoSearchText(video).replace(/\s+/g, '')
+  return TRANSLATION_LANGUAGE_ACTION_TERMS.some(term => text.includes(term)) &&
+    TRANSLATION_LANGUAGE_OBJECT_TERMS.some(term => text.includes(term))
+}
+
+function isOfficialVoiceTranslationGuide(video, productModel) {
+  const exactModel = String(productModel || '').trim()
+  if (!exactModel || String(video.product_model || '').trim() !== exactModel) return false
+  if (String(video.source_provider || '').trim() !== 'iflytek-h5') return false
+  if (Number(video.source_priority || 0) <= 0) return false
+  return /语音翻译/.test(videoSearchText(video))
+}
+
+function expectedOfficialVideoTitle(question) {
+  const text = String(question || '').replace(/\s+/g, '')
+  const mappings = [
+    [/同声字幕/, '同声字幕'],
+    [/会议翻译/, '会议翻译'],
+    [/演讲翻译/, '演讲翻译'],
+    [/通话翻译/, '通话翻译'],
+    [/群组翻译/, '群组翻译'],
+    [/(?:翻译|对话|历史)记录.*(?:同步|导出|手机|电脑)/, '记录导出'],
+    [/(?:首次|第一次).*(?:激活|使用)/, '快速上手'],
+    [/免按键翻译/, '免按键翻译'],
+    [/面对面翻译/, '面对面翻译'],
+    [/拍照翻译/, '拍照翻译'],
+    [/语音翻译/, '语音翻译']
+  ]
+  return mappings.find(([pattern]) => pattern.test(text))?.[1] || ''
 }
 
 function getVideoIntentMatch(video, kind) {
@@ -84,6 +130,7 @@ export function buildVideoGuidance(question, videos) {
     })
     .sort((left, right) =>
       right.guidanceScore - left.guidanceScore ||
+      Number(right.source_priority || 0) - Number(left.source_priority || 0) ||
       Number(right.resolve_count || 0) - Number(left.resolve_count || 0) ||
       Number(right.view_count || 0) - Number(left.view_count || 0) ||
       Number(left.id) - Number(right.id)
@@ -106,8 +153,11 @@ export function extractRecommendationKeywords(question) {
   const source = String(question || '').trim()
   if (!source) return []
 
-  const english = (source.match(/[a-zA-Z0-9][a-zA-Z0-9.]+/g) || []).filter(word => word.length >= 2)
-  const chineseSegments = source.replace(/[a-zA-Z0-9.？?！!。，,、\s]+/g, '|').split('|').filter(segment => segment.length >= 2)
+  const featureText = source.replace(/(?:科大讯飞)?(?:双屏)?翻译机/gi, '')
+  const english = (featureText.match(/[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?/g) || [])
+    .map(word => word.replace(/[\s_-]+/g, ''))
+    .filter(word => word.length >= 2)
+  const chineseSegments = featureText.replace(/[a-zA-Z0-9._-]+|[？?！!。，,、\s]+/g, '|').split('|').filter(segment => segment.length >= 2)
   const chinese = []
   for (const segment of chineseSegments) {
     for (let size = 2; size <= 4; size++) {
@@ -120,16 +170,31 @@ export function extractRecommendationKeywords(question) {
   return [...new Set([...english, ...chinese])].slice(0, 10)
 }
 
-export function rankVideos(videos, { keywords = [], productLine = '', productModel = '', guidanceKind = 'general' } = {}) {
+export function rankVideos(videos, { question = '', keywords = [], productLine = '', productModel = '', guidanceKind = 'general' } = {}) {
   const normalizedKeywords = [...new Set(keywords.map(keyword => String(keyword || '').trim()).filter(Boolean))]
   if (normalizedKeywords.length === 0) return []
+  const needsTranslationLanguageSwitch = isTranslationLanguageSwitchQuestion(question)
+  const needsTranslationReplay = isTranslationReplayQuestion(question)
+  const needsFactoryReset = isFactoryResetQuestion(question)
+  const needsLiquidDamage = isLiquidDamageQuestion(question)
+  const needsOfflinePackage = isOfflinePackageQuestion(question)
+  const needsGettingStarted = isGettingStartedQuestion(question)
+  const directSupportIntent = getDirectSupportIntent(question)
+  if (directSupportIntent === 'disassembly') return []
+  const expectedOfficialTitle = expectedOfficialVideoTitle(question)
 
   return videos
     .filter(video => {
       const videoLine = String(video.product_line || '')
       const videoModel = String(video.product_model || '')
       return (!productLine || !videoLine || videoLine === productLine || videoLine === '翻译机') &&
-        (!productModel || !videoModel || videoModel === productModel)
+        (!productModel || !videoModel || videoModel === productModel) &&
+        (!needsTranslationLanguageSwitch || coversTranslationLanguageSwitch(video) || isOfficialVoiceTranslationGuide(video, productModel)) &&
+        (!needsTranslationReplay || isTranslationReplayEvidence(videoSearchText(video))) &&
+        (!needsFactoryReset || /(恢复出厂|出厂设置|重置设备)/.test(videoSearchText(video))) &&
+        (!needsLiquidDamage || /(进水|浸水|液体接触)/.test(videoSearchText(video)))
+        && (!needsOfflinePackage || /(离线(?:语言)?包|离线包管理|离线翻译包)/.test(videoSearchText(video)))
+        && (!needsGettingStarted || /(首次|激活|入门|语音翻译|基础操作)/.test(videoSearchText(video)))
     })
     .map(video => {
       const tags = toArray(video.tags)
@@ -175,9 +240,31 @@ export function rankVideos(videos, { keywords = [], productLine = '', productMod
         if (matched) matchedKeywords.push(keyword)
       }
 
+      if (needsTranslationLanguageSwitch && isOfficialVoiceTranslationGuide(video, productModel)) {
+        relevance += 14
+        matchedKeywords.push('官方语音翻译教程')
+        matchReasons.push('同型号官方语音翻译教程补充')
+      }
+      if (needsTranslationReplay && isTranslationReplayEvidence(videoSearchText(video))) {
+        relevance += 18
+        matchedKeywords.push('翻译结果复听')
+        matchReasons.push('直接覆盖翻译结果复听')
+      }
+      if (expectedOfficialTitle && String(video.title || '').trim() === expectedOfficialTitle &&
+          String(video.source_provider || '').trim() === 'iflytek-h5' &&
+          (!productModel || String(video.product_model || '').trim() === productModel)) {
+        relevance += 100
+        matchedKeywords.push(`官方${expectedOfficialTitle}`)
+        matchReasons.push(`直接匹配同型号官方《${expectedOfficialTitle}》视频`)
+      }
+
       if (productModel && String(video.product_model || '') === productModel) {
         relevance += 4
         matchReasons.push(`适配${productModel}`)
+      }
+      if (Number(video.source_priority || 0) > 0) {
+        relevance += Math.min(8, Math.ceil(Number(video.source_priority) / 20))
+        matchReasons.push('科大讯飞官方视频来源')
       }
       const intentMatch = getVideoIntentMatch(video, guidanceKind)
       if (intentMatch.score > 0) {
@@ -195,10 +282,27 @@ export function rankVideos(videos, { keywords = [], productLine = '', productMod
     .filter(video => video.matchedKeywords.length > 0)
     .sort((left, right) =>
       right.relevance - left.relevance ||
+      Number(right.source_priority || 0) - Number(left.source_priority || 0) ||
       Number(right.resolve_count || 0) - Number(left.resolve_count || 0) ||
       Number(right.view_count || 0) - Number(left.view_count || 0) ||
       Number(left.id) - Number(right.id)
     )
+}
+
+export function filterSopRecommendationsForQuestion(sops, question) {
+  const list = Array.isArray(sops) ? sops : []
+  const searchable = sop => [
+    sop?.title,
+    sop?.steps,
+    sop?.completion_check
+  ].filter(Boolean).join(' ')
+  if (getDirectSupportIntent(question) === 'disassembly') return []
+  if (isTranslationReplayQuestion(question)) return list.filter(sop => isTranslationReplayEvidence(searchable(sop)))
+  if (isFactoryResetQuestion(question)) return list.filter(sop => /(恢复出厂|出厂设置|重置设备)/.test(searchable(sop)))
+  if (isLiquidDamageQuestion(question)) return list.filter(sop => /(进水|浸水|液体接触)/.test(searchable(sop)))
+  if (isOfflinePackageQuestion(question)) return list.filter(sop => /(离线(?:语言)?包|离线包管理|离线翻译包)/.test(searchable(sop)))
+  if (isGettingStartedQuestion(question)) return list.filter(sop => /(首次|激活|入门|语音翻译|基础操作)/.test(searchable(sop)))
+  return list
 }
 
 export async function findVideoRecommendations(question, filters = {}) {
@@ -206,7 +310,8 @@ export async function findVideoRecommendations(question, filters = {}) {
   if (keywords.length === 0) return []
 
   let sql = `SELECT id, title, description, category, duration_seconds, video_url, thumbnail_url,
-                    product_line, product_model, tags, view_count, resolve_count
+                    product_line, product_model, tags, view_count, resolve_count,
+                    source_provider, source_page_url, source_priority
              FROM videos WHERE publish_status = 'published' AND review_status = 'approved'`
   const params = []
   if (filters.productLine) {
@@ -237,6 +342,6 @@ export async function findVideoRecommendations(question, filters = {}) {
   const diagnosis = classifyVideoNeed(question)
   return rankVideos(
     videos.map(video => ({ ...video, chapters: chaptersByVideo.get(video.id) || [] })),
-    { keywords, guidanceKind: diagnosis.kind, ...filters }
+    { question, keywords, guidanceKind: diagnosis.kind, ...filters }
   ).slice(0, 3)
 }

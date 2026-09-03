@@ -99,6 +99,18 @@ export async function rewriteWithContext(sessionId, question) {
     return { rewritten: question, resolved: false }
   }
 
+  const recentQuestions = history.slice(-3).map(turn => turn.question).join(' ')
+  const networkContext = /(wi[\s-]?fi|wlan|无线网络|联网|网络|路由器|连接失败|密码)/i.test(recentQuestions)
+  const currentQuestion = String(question || '').trim()
+  const vagueNetworkFailure = /^(?:还是|仍然|依然)(?:不行|失败)/.test(currentQuestion)
+  const asksForSupport = /找谁|联系谁|谁处理/.test(currentQuestion)
+  if (networkContext && (vagueNetworkFailure || asksForSupport)) {
+    return {
+      rewritten: '翻译机 Wi-Fi 仍然连接失败，应该联系谁处理？',
+      resolved: true
+    }
+  }
+
   // 检测是否可能需要指代消解（快速规则预判，避免无意义的 LLM 调用）
   const needsResolution =
     /[它这那其]|上面|前面|刚才|之前|同样|也|还有|呢$|吗$/.test(question) &&

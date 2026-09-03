@@ -2,9 +2,10 @@ import { Router } from 'express'
 import dotenv from 'dotenv'
 import QRCode from 'qrcode'
 import pool from '../db.js'
-import { authMiddleware, requireAdmin } from '../middleware/auth.js'
+import { authMiddleware, issueSupportGuestSession, requireAdmin } from '../middleware/auth.js'
 import { createRateLimit } from '../middleware/rateLimit.js'
 import { createSupportChannelService } from '../services/supportChannelService.js'
+import { createProductScopeService } from '../services/productScopeService.js'
 
 dotenv.config()
 
@@ -25,9 +26,11 @@ export function supportChannelPublicAppUrl() {
   return `http://localhost:${localPort}`
 }
 
+const productScopeService = createProductScopeService({ query: pool.query.bind(pool) })
 const service = createSupportChannelService({
   query: pool.query.bind(pool),
-  publicAppUrl: supportChannelPublicAppUrl()
+  publicAppUrl: supportChannelPublicAppUrl(),
+  resolveProduct: productScopeService.resolveProduct
 })
 
 function channelId(rawId) {
@@ -58,12 +61,31 @@ export function sendMutationError(res, error) {
   if (error?.code === 'ER_DUP_ENTRY') {
     return res.status(409).json({ ok: false, error: '该产品型号已有启用的支持渠道' })
   }
-  if (['请输入展示名称', '请输入产品线', '请输入产品型号'].includes(error?.message) || /不能超过/.test(error?.message || '')) {
+  if (['请输入展示名称', '请选择产品型号', '产品型号不存在或暂无有效资料'].includes(error?.message) || /不能超过/.test(error?.message || '')) {
     return res.status(400).json({ ok: false, error: error.message })
   }
   console.error('[support-channels/mutation]', stableErrorCode(error))
   return res.status(500).json({ ok: false, error: '服务器内部错误' })
 }
+
+router.get('/products', authMiddleware, async (req, res) => {
+  try {
+    const products = await productScopeService.listProducts()
+    res.json({
+      ok: true,
+      data: products.map(({ productKey, productLine, productModel, displayName, documentCount }) => ({
+        productKey,
+        productLine,
+        productModel,
+        displayName,
+        documentCount
+      }))
+    })
+  } catch (error) {
+    console.error('[support-channels/products]', stableErrorCode(error))
+    res.status(500).json({ ok: false, error: '无法获取产品型号' })
+  }
+})
 
 router.get('/', authMiddleware, requireAdmin, async (req, res) => {
   try {
@@ -132,16 +154,25 @@ router.get('/:id/qrcode.svg', authMiddleware, requireAdmin, async (req, res) => 
   }
 })
 
-router.get('/resolve/:channelCode', authMiddleware, resolveRateLimit, async (req, res) => {
+router.get('/resolve/:channelCode', resolveRateLimit, async (req, res) => {
   try {
     const channel = await service.resolve(req.params.channelCode)
     if (!channel) return res.status(404).json({ ok: false, error: '支持渠道不存在或已停用' })
+    const product = await productScopeService.resolveStoredProduct(channel.product_line, channel.product_model)
+    if (!product) return res.status(404).json({ ok: false, error: '该产品资料已失效，请联系管理员' })
+    const guestSession = issueSupportGuestSession(res, {
+      channelCode: channel.channel_code,
+      ownerUserId: channel.created_by
+    })
+    res.setHeader('Cache-Control', 'no-store')
     res.json({
       ok: true,
       data: {
         displayName: channel.display_name,
-        productLine: channel.product_line,
-        productModel: channel.product_model
+        productKey: product.productKey,
+        productLine: product.productLine,
+        productModel: product.productModel,
+        sessionExpiresInSeconds: guestSession.expiresInSeconds
       }
     })
   } catch (error) {

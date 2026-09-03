@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
 
 COPY . .
 RUN npm run build
@@ -14,7 +14,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci --omit=dev
 
 COPY --from=build --chown=node:node /app/server ./server
 COPY --from=build --chown=node:node /app/dist ./dist

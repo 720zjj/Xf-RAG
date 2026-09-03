@@ -1,4 +1,17 @@
 ﻿import { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable } from './langchainLLM.js'
+import {
+  GETTING_STARTED_QUERY,
+  getDirectSupportIntent,
+  isDirectSupportEvidence,
+  isGettingStartedEvidence,
+  isGettingStartedQuestion,
+  isOfflinePackageEvidence,
+  isOfflinePackageQuestion,
+  isTranslationReplayEvidence,
+  isTranslationReplayQuestion,
+  isTranslationLanguageSwitchEvidence,
+  isTranslationLanguageSwitchQuestion
+} from './questionIntent.js'
 export { callLLM, callLLMStream, isLLMEnabled, isAnyLLMAvailable }
 
 // 分词器
@@ -412,6 +425,77 @@ function getSynonyms(term) {
   }
   result.delete(term)
   return [...result]
+}
+
+function canonicalConceptTerm(term) {
+  return SYNONYMS[term] ? term : (SYNONYM_CANONICAL[term] || term)
+}
+
+/**
+ * 将一个同时包含多个已知概念的长短语拆成独立概念。
+ *
+ * 旧逻辑会把“切换翻译语言”展开成一个很大的 OR 集合：切换类、翻译类、
+ * 语言类任意命中一个就算整组命中，导致“男女声切换”“系统显示语言”等
+ * 相邻内容也得到 100% coverage。这里按文本位置选择互不重叠的最长词条，
+ * 再按规范概念去重，使切换、翻译、语言必须分别覆盖。
+ *
+ * 只有一个已知概念时仍保留原短语，因此“地方话/粤语/四川话”等方言表达
+ * 继续共享原有的同义词概念簇。
+ */
+function splitRerankPhraseIntoConceptTerms(phrase) {
+  const normalized = String(phrase || '').toLowerCase()
+  const matches = []
+
+  for (const vocab of SYNONYM_VOCAB) {
+    const needle = vocab.toLowerCase()
+    let start = 0
+    while ((start = normalized.indexOf(needle, start)) >= 0) {
+      matches.push({
+        start,
+        end: start + needle.length,
+        term: vocab,
+        canonical: canonicalConceptTerm(vocab)
+      })
+      start += Math.max(needle.length, 1)
+    }
+  }
+
+  matches.sort((left, right) => left.start - right.start || right.end - right.start - (left.end - left.start))
+  const selected = []
+  for (const match of matches) {
+    if (selected.some(item => match.start < item.end && match.end > item.start)) continue
+    selected.push(match)
+  }
+  selected.sort((left, right) => left.start - right.start)
+
+  const seenConcepts = new Set()
+  const atomicTerms = []
+  for (const match of selected) {
+    if (seenConcepts.has(match.canonical)) continue
+    seenConcepts.add(match.canonical)
+    atomicTerms.push(match.term)
+  }
+
+  return atomicTerms.length > 1 ? atomicTerms : [phrase]
+}
+
+function buildRerankConcepts(query) {
+  const concepts = extractPhrases(query)
+    .filter(phrase => phrase.length >= 2 || /^[a-z0-9]+$/.test(phrase))
+    .flatMap(splitRerankPhraseIntoConceptTerms)
+    .map(term => {
+      const alternatives = new Set([term.toLowerCase()])
+      for (const synonym of getSynonyms(term)) alternatives.add(synonym.toLowerCase())
+      return [...alternatives]
+    })
+
+  const seen = new Set()
+  return concepts.filter(alternatives => {
+    const signature = alternatives.slice().sort().join('\u0000')
+    if (seen.has(signature)) return false
+    seen.add(signature)
+    return true
+  })
 }
 
 /**
@@ -847,6 +931,7 @@ export function expandQueries(query) {
 
   // 原始查询
   queries.add(query)
+  if (isGettingStartedQuestion(query)) queries.add(GETTING_STARTED_QUERY)
 
   if (meaningful.length > 0 && phrasesContainKnownVocab(meaningful)) {
     // 正常路径：基于短语的变体
@@ -912,13 +997,10 @@ export function rerank(query, candidates, allChunks, chunkSources, semanticScore
   const queryLower = query.toLowerCase()
   // 提取短语并构建"概念集合"（短语 + 同义词/关联词）作为覆盖/邻近度的匹配单元，
   // 使含"方言"的段落在用户问"地方话/四川话"时也能获得高覆盖分（智能关联）
-  const concepts = extractPhrases(query)
-    .filter(p => p.length >= 2 || /^[a-z0-9]+$/.test(p))
-    .map(p => {
-      const set = new Set([p.toLowerCase()])
-      for (const s of getSynonyms(p)) set.add(s.toLowerCase())
-      return [...set]
-    })
+  const concepts = buildRerankConcepts(query)
+  const translationLanguageSwitchQuestion = isTranslationLanguageSwitchQuestion(query)
+  const translationReplayQuestion = isTranslationReplayQuestion(query)
+  const offlinePackageQuestion = isOfflinePackageQuestion(query)
 
   // 1. 归一化 BM25 分数到 [0, 1]
   const maxScore = Math.max(...candidates.map(c => c.score))
@@ -960,10 +1042,24 @@ export function rerank(query, candidates, allChunks, chunkSources, semanticScore
       }
       if (matched >= 0) { hit++; positions.push(matched) }
     }
-    const coverage = concepts.length > 0 ? hit / concepts.length : 0
+    const rawCoverage = concepts.length > 0 ? hit / concepts.length : 0
+    const translationLanguageSwitchMatch = translationLanguageSwitchQuestion &&
+      isTranslationLanguageSwitchEvidence(chunk)
+    const translationReplayMatch = translationReplayQuestion && isTranslationReplayEvidence(chunk)
+    const offlinePackageMatch = offlinePackageQuestion && isOfflinePackageEvidence(chunk)
+    const directIntentMatch = translationLanguageSwitchMatch || translationReplayMatch || offlinePackageMatch
+    // 仅出现“切换”“翻译”或“语言”等相邻词，不等于覆盖了“如何切换翻译语种”。
+    // 对已被确定性意图规则排除的男女声、系统语言、离线包和故障排查内容，
+    // coverage 必须保留至少一个未覆盖概念，不能再伪装成 100%。
+    const adjacentCoverageCeiling = concepts.length > 1 ? (concepts.length - 1) / concepts.length : 0
+    const strictIntentQuestion = translationLanguageSwitchQuestion || translationReplayQuestion || offlinePackageQuestion
+    const coverage = strictIntentQuestion && !directIntentMatch
+      ? Math.min(rawCoverage, adjacentCoverageCeiling)
+      : rawCoverage
 
     // 因子 4: 软短语匹配（全串匹配优先，否则按概念命中比例给部分分）
-    const phraseScore = chunkLower.includes(queryLower)
+    const phraseScore = chunkLower.includes(queryLower) &&
+      (!strictIntentQuestion || directIntentMatch)
       ? 1.0
       : coverage * 0.6
 
@@ -981,13 +1077,15 @@ export function rerank(query, candidates, allChunks, chunkSources, semanticScore
     const docBoost = Math.min(0.10, 0.05 * (docHitCount[docId] - 1))
 
     // 综合评分（主权重和 = 1.0）
+    const intentBoost = directIntentMatch ? 0.25 : 0
     const finalScore =
       0.34 * bm25Norm +
       0.22 * semNorm +
       0.22 * coverage +
       0.12 * phraseScore +
       0.10 * proximity +
-      docBoost
+      docBoost +
+      intentBoost
 
     return {
       ...c,
@@ -999,14 +1097,71 @@ export function rerank(query, candidates, allChunks, chunkSources, semanticScore
         phraseMatch: phraseScore >= 1.0,
         phraseScore: parseFloat(phraseScore.toFixed(3)),
         proximity: parseFloat(proximity.toFixed(3)),
-        docBoost: parseFloat(docBoost.toFixed(3))
+        docBoost: parseFloat(docBoost.toFixed(3)),
+        intentMatch: directIntentMatch,
+        intentBoost
       }
     }
   })
 
   // 按重排分降序排列
-  scored.sort((a, b) => b.rerankScore - a.rerankScore)
+  scored.sort((left, right) => {
+    // 对已识别的“切换翻译语种”问题，直接操作证据必须先于仅共享泛词的
+    // 相邻功能。否则很高的 BM25/向量分仍可能把男女声或故障 FAQ 压到前面。
+    if (translationLanguageSwitchQuestion || translationReplayQuestion || offlinePackageQuestion) {
+      const intentDifference = Number(right.factors.intentMatch) - Number(left.factors.intentMatch)
+      if (intentDifference !== 0) return intentDifference
+    }
+    return right.rerankScore - left.rerankScore
+  })
   return scored
+}
+
+/**
+ * 宽泛新手问法必须保留同型号的完整入门片段。向量/BM25 候选会先截断，
+ * 因此只靠后置 rerank 无法挽回未进入候选集的官方直接证据。
+ */
+export function anchorGettingStartedResults(question, retrieved, allChunks, chunkSources, chunkMetadata, requestedModel = '') {
+  const current = Array.isArray(retrieved) ? retrieved : []
+  const gettingStarted = isGettingStartedQuestion(question)
+  const directSupportIntent = getDirectSupportIntent(question)
+  if (!gettingStarted && !directSupportIntent) return current
+  const direct = (Array.isArray(allChunks) ? allChunks : [])
+    .map((chunk, index) => ({
+      index,
+      text: chunk,
+      docId: chunkSources?.[index]?.docId,
+      docName: chunkSources?.[index]?.docName,
+      metadata: chunkMetadata?.[index] || {}
+    }))
+    .filter(item => gettingStarted
+      ? isGettingStartedEvidence(item.text)
+      : isDirectSupportEvidence(question, item.text))
+    .sort((left, right) => {
+      const leftSourceModel = Object.hasOwn(left.metadata, 'sourceProductModel') ? left.metadata.sourceProductModel : left.metadata.productModel
+      const rightSourceModel = Object.hasOwn(right.metadata, 'sourceProductModel') ? right.metadata.sourceProductModel : right.metadata.productModel
+      const leftModel = requestedModel && leftSourceModel === requestedModel ? 1 : 0
+      const rightModel = requestedModel && rightSourceModel === requestedModel ? 1 : 0
+      const sourcePriority = item => /官方常见问题/.test(String(item.docName || ''))
+        ? 3
+        : /售后FAQ|用户操作手册|安全说明/.test(String(item.docName || ''))
+          ? 2
+          : /官方H5/.test(String(item.docName || '')) ? 1 : 0
+      return rightModel - leftModel || sourcePriority(right) - sourcePriority(left) || left.index - right.index
+    })
+    .slice(0, 1)
+    .map(item => ({
+      ...item,
+      score: 1,
+      bm25Score: 1,
+      factors: { coverage: 1, phraseMatch: true, intentMatch: true, intentBoost: 0.25 }
+    }))
+  const seen = new Set()
+  return [...direct, ...current].filter(item => {
+    if (seen.has(item.index)) return false
+    seen.add(item.index)
+    return true
+  })
 }
 
 // ========== 回答生成（基于重排结果） ==========

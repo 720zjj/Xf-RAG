@@ -1,6 +1,7 @@
 node_modules/
 dist/
 reports/
+report/
 .env
 /.env.compose
 debug.log
@@ -8,6 +9,10 @@ debug.log
 .codeartsdoer/
 .worktrees/
 uploads/
+backups/
+logs/
+.runtime/
+.tmp-recovery-audit/
 
 # 本地调试与一次性修补产物
 browser-*.png
@@ -15,6 +20,7 @@ step*.png
 video-player-working.png
 _patch*.cjs
 _fix*.cjs
+_css_fix.cjs
 _check*.cjs
 _test*.cjs
 
@@ -30,6 +36,8 @@ _test*.cjs
 .release-snapshot/
 .tmp/
 temp_resume_review/
+daily-report-skill/
+skill/
 
 # 运行时日志
 server-runtime*.log
@@ -39,6 +47,9 @@ _rebuild.ps1
 day01.py
 start_backend.bat
 start_frontend.bat
+test-upload.txt
+extract_resume.py
+张俊杰_工业AI应用工程实习生_面试冲刺手册.md
 src/_drawFrameFragment.txt
 src/_sopVideoRenderer_new.js
 

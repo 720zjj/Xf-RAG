@@ -27,19 +27,35 @@ test('support channel management routes require authenticated administrators in 
   }
 })
 
-test('resolve is authenticated without granting administrator-only access', () => {
+test('resolve publicly exchanges a valid QR code for a restricted guest session', () => {
   const source = routeSource()
   const declaration = source.match(/router\.get\('\/resolve\/:channelCode',[^\n]+/)
   assert.ok(declaration, 'resolve route must be declared')
-  assert.match(declaration[0], /authMiddleware/)
+  assert.doesNotMatch(declaration[0], /authMiddleware/)
   assert.doesNotMatch(declaration[0], /requireAdmin/)
+  assert.match(declaration[0], /resolveRateLimit/)
+  assert.match(source, /issueSupportGuestSession\(res, \{/)
+  assert.match(source, /ownerUserId: channel\.created_by/)
+  assert.match(source, /res\.setHeader\('Cache-Control', 'no-store'\)/)
+})
+
+test('产品目录接口要求登录，二维码创建由服务端 productKey 解析产品范围', () => {
+  const source = routeSource()
+  assert.match(source, /router\.get\('\/products', authMiddleware,/)
+  assert.match(source, /resolveProduct: productScopeService\.resolveProduct/)
+  assert.match(source, /productScopeService\.resolveStoredProduct\(channel\.product_line, channel\.product_model\)/)
+  assert.doesNotMatch(source, /service\.create\(\{[^}]*productLine:/)
 })
 
 test('application mounts support channel APIs before the SPA fallback', () => {
   const source = fs.readFileSync(indexPath, 'utf8')
   const mount = source.indexOf("app.use('/api/support-channels', supportChannelRoutes)")
+  const apiFallback = source.indexOf("app.use('/api', (req, res) =>")
   const fallback = source.indexOf('// SPA 回退')
   assert.ok(mount >= 0, 'support channel APIs must be mounted')
+  assert.ok(apiFallback >= 0, 'unknown API routes must have a JSON 404 fallback')
+  assert.ok(mount < apiFallback, 'known APIs must be mounted before the API 404 fallback')
+  assert.ok(apiFallback < fallback, 'the API 404 fallback must run before the SPA fallback')
   assert.ok(mount < fallback, 'support channel APIs must be mounted before the SPA fallback')
 })
 

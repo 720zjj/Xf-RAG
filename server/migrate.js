@@ -126,6 +126,11 @@ export async function runMigrations() {
     await ensureColumn(conn, dbName, 'support_channels', 'product_model', "VARCHAR(100) NOT NULL DEFAULT ''")
     await ensureColumn(conn, dbName, 'support_channels', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1')
 
+    await ensureColumn(conn, dbName, 'videos', 'source_provider', "VARCHAR(50) NOT NULL DEFAULT 'local'")
+    await ensureColumn(conn, dbName, 'videos', 'external_id', 'VARCHAR(160) DEFAULT NULL')
+    await ensureColumn(conn, dbName, 'videos', 'source_page_url', "VARCHAR(700) DEFAULT ''")
+    await ensureColumn(conn, dbName, 'videos', 'source_priority', 'SMALLINT NOT NULL DEFAULT 0')
+
     const documentContent = await columnInfo(conn, dbName, 'documents', 'content')
     if (documentContent?.DATA_TYPE !== 'longtext') await conn.query('ALTER TABLE documents MODIFY COLUMN content LONGTEXT NULL')
     const qaDocumentId = await columnInfo(conn, dbName, 'rag_qa', 'document_id')
@@ -197,6 +202,7 @@ export async function runMigrations() {
       await ensureIndex(conn, dbName, 'support_channels', 'uq_support_channels_creator_product', '`created_by`, `product_line`, `product_model`', true)
     }
     await ensureIndex(conn, dbName, 'support_channels', 'idx_support_channels_creator_active', '`created_by`, `is_active`, `updated_at`')
+    await ensureIndex(conn, dbName, 'videos', 'uq_video_external_source', '`source_provider`, `external_id`', true)
     if (!(await hasIndex(conn, dbName, 'video_qa_links', 'uq_vqa_action'))) {
       await conn.query(`DELETE newer FROM video_qa_links newer
         JOIN video_qa_links older

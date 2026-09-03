@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
-import { assertRuntimeConfig, validateRuntimeConfig } from '../server/config/runtimeConfig.js'
+import express from 'express'
+import { assertRuntimeConfig, parseTrustProxyConfig, validateRuntimeConfig } from '../server/config/runtimeConfig.js'
 import { createRequestId, requestContextMiddleware, requestLogMiddleware } from '../server/middleware/requestContext.js'
 import { configureTransformersRuntime } from '../server/services/transformersRuntime.js'
 
@@ -24,6 +25,29 @@ function createResponse() {
 
 test('生产环境完整配置会通过校验', () => {
   assert.deepEqual(validateRuntimeConfig(validProduction), { ok: true, errors: [] })
+})
+
+test('反向代理只接受明确地址或受控网段，拒绝信任全部来源', () => {
+  assert.equal(parseTrustProxyConfig(''), false)
+  assert.deepEqual(parseTrustProxyConfig('loopback, linklocal, uniquelocal'), ['loopback', 'linklocal', 'uniquelocal'])
+  assert.deepEqual(parseTrustProxyConfig('127.0.0.1, 172.16.0.0/12'), ['127.0.0.1', '172.16.0.0/12'])
+  assert.throws(() => parseTrustProxyConfig('true'), /不能信任所有代理地址/)
+  assert.throws(() => parseTrustProxyConfig('0.0.0.0/0'), /不能信任所有代理地址/)
+  assert.equal(validateRuntimeConfig({ ...validProduction, TRUST_PROXY: 'not-a-network' }).ok, false)
+})
+
+test('受信任的同机代理会让 Express 读取真实顾客 IP', async t => {
+  const app = express()
+  app.set('trust proxy', parseTrustProxyConfig('loopback'))
+  app.get('/ip', (req, res) => res.json({ ip: req.ip }))
+  const server = app.listen(0, '127.0.0.1')
+  t.after(() => new Promise(resolve => server.close(resolve)))
+  await new Promise(resolve => server.once('listening', resolve))
+  const { port } = server.address()
+  const response = await fetch(`http://127.0.0.1:${port}/ip`, {
+    headers: { 'X-Forwarded-For': '203.0.113.25' }
+  })
+  assert.deepEqual(await response.json(), { ip: '203.0.113.25' })
 })
 
 test('生产环境拒绝非 HTTPS 的公开地址', () => {

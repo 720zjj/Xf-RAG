@@ -3,7 +3,7 @@ import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, requireAdmin } from '../middleware/auth.js'
 import { createRateLimit } from '../middleware/rateLimit.js'
 import pool from '../db.js'
 import { invalidateAllChunks } from '../services/chunkStore.js'
@@ -112,7 +112,7 @@ function sendJobCreation(res, result, type) {
 }
 
 // 上传只保存文件并创建任务；解析始终由独立 Worker 执行。
-router.post('/upload', authMiddleware, documentUploadRateLimit, upload.single('file'), async (req, res) => {
+router.post('/upload', authMiddleware, requireAdmin, documentUploadRateLimit, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, error: '请选择文件' })
     const fileType = path.extname(req.file.originalname).toLowerCase().slice(1)
@@ -175,7 +175,7 @@ router.get('/:id/job', authMiddleware, async (req, res) => {
   }
 })
 
-router.post('/:id/reparse', authMiddleware, async (req, res) => {
+router.post('/:id/reparse', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const result = await createReparseJob({ userId: req.user.id, documentId: req.params.id })
     if (!result) return res.status(404).json({ ok: false, error: '文档不存在' })
@@ -186,7 +186,7 @@ router.post('/:id/reparse', authMiddleware, async (req, res) => {
   }
 })
 
-router.post('/:id/retry', authMiddleware, async (req, res) => {
+router.post('/:id/retry', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const result = await createRetryJob({ userId: req.user.id, documentId: req.params.id })
     if (!result) return res.status(404).json({ ok: false, error: '文档不存在' })
@@ -197,7 +197,7 @@ router.post('/:id/retry', authMiddleware, async (req, res) => {
   }
 })
 
-router.post('/:id/cancel', authMiddleware, async (req, res) => {
+router.post('/:id/cancel', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const result = await requestDocumentJobCancel({ userId: req.user.id, documentId: req.params.id })
     if (!result) return res.status(404).json({ ok: false, error: '文档任务不存在' })
@@ -231,7 +231,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 })
 
 // 删除终态文档；活跃任务必须先在 Worker 安全边界取消。
-router.delete('/:id', authMiddleware, async (req, res) => {
+router.delete('/:id', authMiddleware, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
       'SELECT file_path, status FROM documents WHERE id = ? AND user_id = ?',

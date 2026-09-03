@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const testDir = path.dirname(fileURLToPath(import.meta.url))
 const readProjectFile = filename => fs.readFileSync(path.join(testDir, '..', filename), 'utf8')
 
-test('support QR documentation gives operators the authenticated release procedure', () => {
+test('support QR documentation gives operators the anonymous restricted guest release procedure', () => {
   const envExample = readProjectFile('.env.example')
   const readme = readProjectFile('README.md')
 
@@ -18,14 +18,16 @@ test('support QR documentation gives operators the authenticated release procedu
   assert.match(readme, /JWT_SECRET/)
   assert.match(readme, /npm run db:migrate/)
   assert.match(readme, /\/support\/<channelCode>/)
-  assert.match(readme, /普通.*测试.*账号|测试.*普通.*账号/)
+  assert.match(readme, /无需注册和登录/)
+  assert.match(readme, /无痕窗口|未登录的手机/)
+  assert.match(readme, /服务端.*绑定.*产品型号|产品型号.*服务端.*绑定/)
   assert.match(readme, /创建.*下载.*二维码|创建.*二维码.*下载/)
-  assert.match(readme, /二维码不是身份凭证/)
+  assert.match(readme, /二维码不是管理员身份凭证/)
   assert.match(readme, /HTTPS/)
   assert.match(readme, /数据库备份/)
   assert.match(readme, /一个.*管理员.*产品线.*产品型号.*二维码入口|一.*管理员.*产品线.*产品型号.*二维码入口/)
   assert.match(readme, /停用.*轮换.*不可用|不可用.*停用.*轮换/)
-  assert.match(readme, /403/)
+  assert.match(readme, /资料、二维码、视频管理或 Agent API 必须被拒绝/)
 })
 
 test('Docker deployment documentation distinguishes local, LAN, and public QR operation', () => {

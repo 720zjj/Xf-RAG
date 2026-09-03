@@ -59,6 +59,18 @@ test('初始化脚本声明支持二维码渠道表及其约束', () => {
   assert.match(combined, /FOREIGN KEY \(created_by\) REFERENCES users\(id\) ON DELETE CASCADE/)
 })
 
+test('视频表声明官方来源字段和幂等导入索引', () => {
+  const combined = loadInitStatements().join('\n')
+  const migrationSource = fs.readFileSync(new URL('../server/migrate.js', import.meta.url), 'utf8')
+  assert.match(combined, /source_provider VARCHAR\(50\) NOT NULL DEFAULT 'local'/)
+  assert.match(combined, /external_id VARCHAR\(160\) DEFAULT NULL/)
+  assert.match(combined, /source_page_url VARCHAR\(700\) DEFAULT ''/)
+  assert.match(combined, /source_priority SMALLINT NOT NULL DEFAULT 0/)
+  assert.match(combined, /UNIQUE INDEX uq_video_external_source \(source_provider, external_id\)/)
+  assert.match(migrationSource, /ensureColumn\(conn, dbName, 'videos', 'source_provider'/)
+  assert.match(migrationSource, /ensureIndex\(conn, dbName, 'videos', 'uq_video_external_source'/)
+})
+
 test('已有数据库会迁移支持二维码渠道列和索引', () => {
   const source = fs.readFileSync(new URL('../server/migrate.js', import.meta.url), 'utf8')
   assert.match(source, /ensureColumn\(conn, dbName, 'support_channels', 'display_name'/)

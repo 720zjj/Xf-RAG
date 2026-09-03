@@ -28,6 +28,8 @@ test('问答反馈和知识缺口接口使用 trace 服务并校验管理权限'
   assert.match(source, /saveFeedback/)
   assert.match(source, /router\.get\('\/knowledge-gaps'/)
   assert.match(source, /listKnowledgeGaps/)
+  assert.match(source, /router\.get\('\/feedback-summary'/)
+  assert.match(source, /listFeedbackSummary/)
   assert.match(source, /isAdmin/)
 })
 
@@ -58,4 +60,5 @@ test('SOP 证据与展示块采用相同的步骤、前置条件和警告顺序'
   const source = read('../server/routes/rag.js')
 
   assert.match(source, /\.\.\.steps, \.\.\.prerequisites, \.\.\.warnings, sop\.completion_check/)
+  assert.match(source, /parseJsonList\(sop\.steps\)\.map\(formatSopStep\)\.filter\(Boolean\)/)
 })

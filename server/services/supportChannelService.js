@@ -25,15 +25,12 @@ export function parsePublicAppUrl(raw, { production = false } = {}) {
 
 export function normalizeSupportChannelInput(input = {}) {
   const displayName = text(input.displayName ?? input.display_name)
-  const productLine = text(input.productLine ?? input.product_line)
-  const productModel = text(input.productModel ?? input.product_model)
+  const productKey = text(input.productKey ?? input.product_key)
   if (!displayName) throw new Error('请输入展示名称')
-  if (!productLine) throw new Error('请输入产品线')
-  if (!productModel) throw new Error('请输入产品型号')
+  if (!productKey) throw new Error('请选择产品型号')
   if (displayName.length > 100) throw new Error('展示名称不能超过 100 个字符')
-  if (productLine.length > 50) throw new Error('产品线不能超过 50 个字符')
-  if (productModel.length > 100) throw new Error('产品型号不能超过 100 个字符')
-  return { displayName, productLine, productModel }
+  if (productKey.length > 100) throw new Error('产品标识不能超过 100 个字符')
+  return { displayName, productKey }
 }
 
 export function generateChannelCode(randomBytesFn = crypto.randomBytes) {
@@ -50,8 +47,9 @@ function dbPayload(result) {
   return Array.isArray(result) && !Array.isArray(result[0]) ? result[0] : result
 }
 
-export function createSupportChannelService({ query, publicAppUrl, codeFactory = generateChannelCode } = {}) {
+export function createSupportChannelService({ query, publicAppUrl, codeFactory = generateChannelCode, resolveProduct } = {}) {
   if (typeof query !== 'function') throw new Error('support channel query 未配置')
+  if (typeof resolveProduct !== 'function') throw new Error('support channel product resolver 未配置')
   const baseUrl = parsePublicAppUrl(publicAppUrl, { production: process.env.NODE_ENV === 'production' })
 
   async function list(createdBy) {
@@ -65,26 +63,39 @@ export function createSupportChannelService({ query, publicAppUrl, codeFactory =
 
   async function create(input) {
     const normalized = normalizeSupportChannelInput(input)
+    const product = await resolveProduct(normalized.productKey)
+    if (!product) throw new Error('产品型号不存在或暂无有效资料')
     const channelCode = codeFactory()
     if (!CHANNEL_CODE_PATTERN.test(channelCode)) throw new Error('二维码入口编号格式无效')
     const result = await query(
       `INSERT INTO support_channels
        (channel_code, display_name, product_line, product_model, is_active, created_by)
        VALUES (?, ?, ?, ?, 1, ?)`,
-      [channelCode, normalized.displayName, normalized.productLine, normalized.productModel, input.createdBy]
+      [channelCode, normalized.displayName, product.productLine, product.productModel, input.createdBy]
     )
     const dbResult = dbPayload(result)
-    return { id: Number(dbResult?.insertId), ...normalized, channelCode, isActive: true, createdBy: input.createdBy }
+    return {
+      id: Number(dbResult?.insertId),
+      displayName: normalized.displayName,
+      productKey: product.productKey,
+      productLine: product.productLine,
+      productModel: product.productModel,
+      channelCode,
+      isActive: true,
+      createdBy: input.createdBy
+    }
   }
 
   async function update(id, input) {
-    const normalized = normalizeSupportChannelInput(input)
+    const displayName = text(input.displayName ?? input.display_name)
+    if (!displayName) throw new Error('请输入展示名称')
+    if (displayName.length > 100) throw new Error('展示名称不能超过 100 个字符')
     const isActive = input.isActive ?? input.is_active
     const result = await query(
       `UPDATE support_channels
-       SET display_name = ?, product_line = ?, product_model = ?, is_active = ?
+       SET display_name = ?, is_active = ?
        WHERE id = ?`,
-      [normalized.displayName, normalized.productLine, normalized.productModel, isActive === false ? 0 : 1, id]
+      [displayName, isActive === false ? 0 : 1, id]
     )
     return dbPayload(result)
   }
@@ -100,7 +111,7 @@ export function createSupportChannelService({ query, publicAppUrl, codeFactory =
   async function resolve(code) {
     if (!CHANNEL_CODE_PATTERN.test(String(code || ''))) return null
     const result = await query(
-      `SELECT display_name, product_line, product_model, channel_code
+      `SELECT display_name, product_line, product_model, channel_code, created_by
        FROM support_channels WHERE channel_code = ? AND is_active = 1 LIMIT 1`,
       [code]
     )

@@ -1,4 +1,5 @@
 import { parsePublicAppUrl } from '../services/supportChannelService.js'
+import { isIP } from 'node:net'
 
 const PLACEHOLDER_JWT_SECRETS = new Set([
   'your_jwt_secret',
@@ -54,6 +55,27 @@ function validRedisUrl(value) {
   }
 }
 
+const TRUST_PROXY_ALIASES = new Set(['loopback', 'linklocal', 'uniquelocal'])
+
+export function parseTrustProxyConfig(value) {
+  const entries = text(value).split(',').map(text).filter(Boolean)
+  if (entries.length === 0) return false
+  for (const entry of entries) {
+    const normalized = entry.toLowerCase()
+    if (['true', '1', '*', '0.0.0.0/0', '::/0'].includes(normalized)) {
+      throw new Error('不能信任所有代理地址，请填写反向代理的明确地址或受控网段')
+    }
+    if (TRUST_PROXY_ALIASES.has(normalized) || isIP(entry)) continue
+    const [address, prefix, extra] = entry.split('/')
+    const family = isIP(address)
+    const maximumPrefix = family === 4 ? 32 : family === 6 ? 128 : 0
+    if (extra !== undefined || !maximumPrefix || !/^\d+$/.test(prefix) || Number(prefix) > maximumPrefix) {
+      throw new Error('只能填写 loopback/linklocal/uniquelocal、IP 地址或 CIDR 网段')
+    }
+  }
+  return entries
+}
+
 export function validateRuntimeConfig(env = process.env) {
   const errors = []
   if (!isPort(env.PORT)) errors.push('PORT 必须是 1 到 65535 之间的整数')
@@ -65,6 +87,11 @@ export function validateRuntimeConfig(env = process.env) {
   if (!text(env.UPLOAD_DIR)) errors.push('UPLOAD_DIR 不能为空')
   if (!validRedisUrl(env.REDIS_URL)) errors.push('REDIS_URL 必须使用 redis:// 或 rediss:// 协议')
   if (isPlaceholderJwtSecret(env.JWT_SECRET)) errors.push('JWT_SECRET 未配置或仍为示例值')
+  try {
+    parseTrustProxyConfig(env.TRUST_PROXY)
+  } catch (error) {
+    errors.push(`TRUST_PROXY 配置无效：${error.message}`)
+  }
 
   if (env.NODE_ENV === 'production') {
     if (text(env.DB_PASSWORD) && isPlaceholderDatabasePassword(env.DB_PASSWORD)) {

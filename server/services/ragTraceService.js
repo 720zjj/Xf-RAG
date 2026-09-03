@@ -129,5 +129,33 @@ export function createRagTraceService({ pool, createId = randomUUID } = {}) {
     return rows
   }
 
-  return Object.freeze({ persistTrace, saveFeedback, listKnowledgeGaps })
+  async function listFeedbackSummary({ canManage = false, productModel = '', limit = 50 } = {}) {
+    if (!canManage) throw errorWithStatus('无权查看顾客反馈', 403)
+    const clauses = []
+    const params = []
+    if (productModel) { clauses.push('t.product_model = ?'); params.push(productModel) }
+    params.push(Math.max(1, Math.min(Number(limit) || 50, 200)))
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+    const [rows] = await pool.query(
+      `SELECT t.question_snapshot AS question, t.product_line AS productLine, t.product_model AS productModel,
+              SUM(f.outcome = "solved") AS solvedCount,
+              SUM(f.outcome = "unsolved") AS unsolvedCount,
+              COUNT(*) AS feedbackCount, MAX(f.updated_at) AS latestAt
+       FROM rag_answer_feedback f
+       JOIN rag_answer_traces t ON t.id = f.trace_id
+       ${where}
+       GROUP BY t.question_snapshot, t.product_line, t.product_model
+       ORDER BY latestAt DESC
+       LIMIT ?`,
+      params
+    )
+    return rows.map(row => ({
+      ...row,
+      solvedCount: Number(row.solvedCount || 0),
+      unsolvedCount: Number(row.unsolvedCount || 0),
+      feedbackCount: Number(row.feedbackCount || 0)
+    }))
+  }
+
+  return Object.freeze({ persistTrace, saveFeedback, listKnowledgeGaps, listFeedbackSummary })
 }
