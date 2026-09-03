@@ -64,6 +64,8 @@ test('前端使用结构化答案阅读器和视频解决反馈', () => {
   assert.match(source, /source_provider === 'iflytek-h5'/)
   assert.match(source, /preload="metadata"/)
   assert.match(source, /playsInline/)
+  assert.match(source, /webkit-playsinline="true"/)
+  assert.match(source, /x5-playsinline="true"/)
   assert.match(source, /video\.playback_url \|\| video\.video_url/)
   assert.match(source, /打开官方视频来源/)
   assert.doesNotMatch(source, /<video[^>]+autoPlay/)

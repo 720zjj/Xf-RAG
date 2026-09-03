@@ -53,7 +53,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Frame-Options', 'DENY')
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://static.xftrans.cn; media-src 'self' blob: https://static.xftrans.cn; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://static.xftrans.cn; media-src 'self' blob: https://static.xftrans.cn https://cloud.video.taobao.com https://video-sh.cloudvideocdn.taobao.com https://video-zb.cloudvideocdn.taobao.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
     return res.status(403).json({ ok: false, error: '拒绝跨站请求' })
   }

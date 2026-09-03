@@ -286,6 +286,8 @@ function VideoPlayerDialog({ video, loadError, onError, onClose }) {
           poster={video.thumbnail_url || undefined}
           controls
           playsInline
+          webkit-playsinline="true"
+          x5-playsinline="true"
           preload="metadata"
           onError={onError}
           style={{ width: '100%', display: loadError ? 'none' : 'block', maxHeight: '70vh', background: '#000' }}
