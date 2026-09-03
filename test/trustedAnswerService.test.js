@@ -131,6 +131,34 @@ test('宽泛新手问题直接返回完整首次语音翻译流程和要点', as
   assert.match(quickQuestionResult.answer, /6、松开按键，翻译机播报中文翻译/)
 })
 
+test('双屏 2.0 锁定后宽泛首次使用问题直接返回本型号激活流程', async () => {
+  const onboardingEvidence = [{
+    evidenceId: 'E1',
+    title: '讯飞双屏翻译机2.0官方快速上手视频核验',
+    excerpt: '【章节：讯飞双屏翻译机2.0官方快速上手视频核验 > 双屏翻译机 2.0 第一次使用怎么操作？】 1. 长按机身右侧电源键约 2 秒开机。 2. 首次使用需要联网激活；开机后先选择系统语言，然后点击“继续”。 3. 在权限申请页面阅读提示后，点击“同意并使用”。 4. 在网络页面选择可用的 WiFi，或者插入 SIM 卡完成联网。 5. 网络连接完成后，按照设备页面提示继续激活。 6. 页面提示绑定“讯飞翻译机”公众号时，可以按需绑定，也可以选择“跳过”。 7. 完成上述页面后进入系统主界面，即可按照需要选择翻译功能。',
+    sourceType: 'document_chunk',
+    rerankScore: 0.9,
+    coversQuestion: true
+  }]
+  let calls = 0
+
+  const result = await createTrustedAnswer({
+    question: '第一次使用怎么操作？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: onboardingEvidence,
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.equal(result.answerSource, 'trusted-extractive')
+  assert.match(result.answer, /1、长按机身右侧电源键约 2 秒开机/)
+  assert.match(result.answer, /首次使用需要联网激活/)
+  assert.match(result.answer, /7、完成上述页面后进入系统主界面/)
+  assert.equal(result.sources[0].docName, '讯飞双屏翻译机2.0官方快速上手视频核验')
+})
+
 test('带未知引用 ID 的模型结果会安全拒答', async () => {
   const result = await createTrustedAnswer({
     question: '支持自定义术语吗？',

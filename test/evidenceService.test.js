@@ -62,6 +62,24 @@ test('同名 FAQ 即使分数较低也优先于 Agent 扩展出的高分无关�
 
   assert.equal(selected[0].chunkId, 165)
   assert.match(selected[0].excerpt, /立即关机/)
+  assert.equal(selected[0].coversQuestion, true)
+})
+
+test('当前扫码型号资料中的同名问题会被视为直接覆盖', () => {
+  const selected = selectEvidence([{
+    ...duplicateWifi,
+    chunkId: 166,
+    docName: '售后FAQ.md',
+    text: '【章节：保修期是多久？】请以绑定后的本机保修日期为准。',
+    score: 0.62,
+    factors: { coverage: 0.2, phraseMatch: false },
+    metadata: { productModel: '翻译机4.0', effectiveStatus: 'active' }
+  }], {
+    question: '保修期是多久？',
+    requestedModel: '翻译机4.0'
+  })
+
+  assert.equal(selected[0].coversQuestion, true)
 })
 
 test('宽泛新手问题优先完整首次翻译流程而不是高分局部功能', () => {
@@ -161,6 +179,37 @@ test('联网问题优先直接联网步骤并把通话、热点等相邻片段�
   assert.equal(selected[0].coversQuestion, true)
   assert.equal(selected.find(item => item.chunkId === 253).coversQuestion, false)
   assert.equal(selected.find(item => item.chunkId === 254).coversQuestion, false)
+})
+
+test('双屏 2.0 宽泛首次使用问题优先完整激活流程而不是相邻视频索引', () => {
+  const directOnboarding = {
+    ...duplicateWifi,
+    chunkId: 260,
+    docName: '讯飞双屏翻译机2.0官方快速上手视频核验.md',
+    text: '【章节：双屏翻译机 2.0 第一次使用怎么操作？】 1. 长按机身右侧电源键约 2 秒开机。 2. 首次使用需要联网激活。 3. 选择系统语言并同意权限。 4. 选择可用的 WiFi 或插入 SIM 卡。',
+    score: 0.68,
+    factors: { coverage: 0.4 },
+    metadata: { productModel: '翻译机2.0', effectiveStatus: 'active', riskLevel: 'low' }
+  }
+  const adjacentVideo = {
+    ...duplicateWifi,
+    chunkId: 261,
+    docName: '讯飞双屏翻译机2.0官方H5视频索引.md',
+    text: '科大讯飞官方 H5 提供《快速上手》使用视频，请在回答下方播放《快速上手》官方视频。',
+    score: 1.08,
+    factors: { coverage: 1, phraseMatch: true },
+    metadata: { productModel: '翻译机2.0', effectiveStatus: 'active', riskLevel: 'low' }
+  }
+
+  const selected = selectEvidence([adjacentVideo, directOnboarding], {
+    question: '第一次使用怎么操作？',
+    requestedModel: '翻译机2.0'
+  })
+
+  assert.equal(selected[0].chunkId, 260)
+  assert.equal(selected[0].selectionReason, 'intent-match')
+  assert.equal(selected[0].coversQuestion, true)
+  assert.equal(selected.find(item => item.chunkId === 261).coversQuestion, false)
 })
 
 test('官方常见问题原文会被选为两款机型的翻译语种直接证据', () => {

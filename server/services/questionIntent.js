@@ -64,17 +64,25 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'translation-inaccurate',
     question: text => /(翻译|识别).{0,8}(?:不准|不准确|错误|有误)/.test(text),
-    evidence: text => /翻译结果不准确怎么办/.test(text) && /(背景噪音|正常语速|标准.*发音)/.test(text)
+    evidence: text => /翻译结果不准确怎么办/.test(text) && /(背景噪[音声]|正常语速|标准.*发音)/.test(text)
   },
   {
     id: 'device-heat',
     question: text => /(发热|发烫|温度过高|很烫)/.test(text),
-    evidence: text => /设备发热严重怎么办/.test(text) && /(温度过高|停止使用|联系售后)/.test(text)
+    evidence: text => /(设备发热严重怎么办|翻译机发热正常吗|异常发热与充电)/.test(text)
+      && /(温度过高|停止使用|停止充电|联系(?:官方)?售后)/.test(text)
   },
   {
     id: 'charging-failure',
     question: text => /(充不进|充不进去|无法充电|充电.{0,8}(?:没反应|不亮|失败))/.test(text),
-    evidence: text => /充电时指示灯不亮/.test(text) && /(适配器|数据线)/.test(text) && /(接口|灰尘|异物)/.test(text)
+    evidence: text => /(充电时指示灯不亮|充不进(?:去)?电|无法充电)/.test(text)
+      && /(适配器|数据线|充电线)/.test(text) && /(接口|灰尘|异物)/.test(text)
+  },
+  {
+    id: 'power-on-failure',
+    question: text => /(?:翻译机|设备).{0,6}(?:无法|不能|开不了|打不开).{0,4}开机|(?:无法|不能|开不了|打不开)开机/.test(text),
+    evidence: text => /翻译机无法开机怎么办/.test(text)
+      && /充电/.test(text) && /电源键/.test(text) && /(?:官方)?售后/.test(text)
   },
   {
     id: 'disassembly',
@@ -89,7 +97,10 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'translation-history',
     question: text => /(?:查看|查找|找到|看)(?:以前|之前|历史)?(?:的)?(?:翻译记录|翻译内容|历史翻译)|(?:翻译记录|历史翻译).{0,10}(?:在哪|哪里|怎么查看|如何查看)/.test(text),
-    evidence: text => /翻译记录/.test(text) && /自动保存翻译历史/.test(text) && /(?:查看|复听)历史翻译内容/.test(text)
+    evidence: text => /翻译记录/.test(text) && (
+      (/自动保存翻译历史/.test(text) && /(?:查看|复听)历史翻译内容/.test(text))
+      || (/查看翻译记录/.test(text) && /(?:打开|入口).{0,30}(?:翻译记录|历史记录)/.test(text))
+    )
   },
   {
     id: 'first-activation-video',
@@ -155,7 +166,8 @@ export function isGettingStartedEvidence(value) {
   const text = String(value || '')
   return Boolean(
     (/首次翻译操作/.test(text) && /(语音翻译（最常用）|长按左侧中文键)/.test(text)) ||
-    (/翻译机\s*4\.0\s*怎么使用语音翻译/.test(text) && /解锁/.test(text) && /语种/.test(text))
+    (/翻译机\s*4\.0\s*怎么使用语音翻译/.test(text) && /解锁/.test(text) && /语种/.test(text)) ||
+    (/双屏翻译机\s*2\.0\s*第一次使用怎么操作/.test(text) && /电源键.{0,12}2\s*秒/.test(text) && /联网激活/.test(text))
   )
 }
 

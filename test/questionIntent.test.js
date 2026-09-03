@@ -24,8 +24,15 @@ test('direct support intent distinguishes covered troubleshooting from misleadin
   assert.equal(getDirectSupportIntent('翻译机没有声音怎么办？'), 'no-sound')
   assert.equal(getDirectSupportIntent('翻译速度很慢怎么办？'), 'translation-slow')
   assert.equal(getDirectSupportIntent('翻译结果不准确怎么办？'), 'translation-inaccurate')
+  assert.equal(getDirectSupportIntent('翻译机无法开机怎么办？'), 'power-on-failure')
+  assert.equal(getDirectSupportIntent('翻译机发热正常吗？'), 'device-heat')
+  assert.equal(getDirectSupportIntent('翻译机充不进去电怎么办？'), 'charging-failure')
   assert.equal(getDirectSupportIntent('出国没有网络还能翻译吗？'), 'offline-translation-capability')
   assert.equal(isDirectSupportEvidence('翻译结果不准确怎么办？', 'Q8：翻译结果不准确怎么办？ 减少背景噪音，正常语速说话。'), true)
+  assert.equal(isDirectSupportEvidence('翻译结果不准确怎么办？', 'Q3：翻译结果不准确怎么办？请用正常语速说话并减少背景噪声。'), true)
+  assert.equal(isDirectSupportEvidence('翻译机无法开机怎么办？', 'Q10：翻译机无法开机怎么办？先连接充电线充电，再长按电源键；仍无反应请联系官方售后。'), true)
+  assert.equal(isDirectSupportEvidence('翻译机发热正常吗？', 'Q12：翻译机发热正常吗？若温度过高，请停止充电并联系官方售后。'), true)
+  assert.equal(isDirectSupportEvidence('翻译机充不进去电怎么办？', 'Q11：翻译机充不进去电怎么办？检查充电线、适配器、接口、灰尘或异物。'), true)
   assert.equal(isDirectSupportEvidence('翻译速度很慢怎么办？', '设置 → 播报语速'), false)
 })
 
@@ -57,6 +64,10 @@ test('已有直接资料的翻译记录查询与首次激活不再依赖模型�
   assert.equal(isDirectSupportEvidence(
     '如何查看以前的翻译记录？',
     '【章节：辅助功能 > 翻译记录】自动保存翻译历史。可查看、复听历史翻译内容。支持通过 APP 同步到手机。'
+  ), true)
+  assert.equal(isDirectSupportEvidence(
+    '如何查看以前的翻译记录？',
+    '【章节：用户操作手册 > 1.6 查看翻译记录】打开设备中的“翻译记录”或历史记录入口查看。'
   ), true)
   assert.equal(getDirectSupportIntent('双屏翻译机第一次怎么激活？'), 'first-activation-video')
   assert.equal(isDirectSupportEvidence(
@@ -104,6 +115,10 @@ test('识别翻译结果复听能力，并区分自动播报和播放故障', ()
 test('入门证据要求首次翻译操作和常用语音翻译章节', () => {
   assert.equal(isGettingStartedEvidence('首次翻译操作 > 语音翻译（最常用）'), true)
   assert.equal(isGettingStartedEvidence('第四章 拍照翻译 > 使用方法'), false)
+})
+
+test('双屏 2.0 官方快速上手的完整激活流程属于入门直接证据', () => {
+  assert.equal(isGettingStartedEvidence('【双屏翻译机 2.0 第一次使用怎么操作】1. 长按机身右侧电源键约 2 秒开机。2. 首次使用需要联网激活。'), true)
 })
 
 test('区分连接 Wi-Fi 的基础操作与联网故障排查', () => {

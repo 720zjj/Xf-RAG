@@ -151,6 +151,11 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
       selected.length,
       safetyQuestion && highRisk ? 'safety' : directIntent ? 'intent-match' : 'best-match'
     )
+    // A question that appears verbatim in the current product-scoped material is
+    // direct coverage even when its generic rerank factors are conservative.
+    // Specific intent guards below still take precedence and can reject a
+    // misleading same-word fragment for sensitive operations.
+    if (exactQuestionMatch(item, question)) selectedEvidence.coversQuestion = true
     if (translationLanguageSwitchQuestion) selectedEvidence.coversQuestion = directTranslationLanguage
     if (translationReplayQuestion) selectedEvidence.coversQuestion = directTranslationReplay
     if (factoryResetQuestion) selectedEvidence.coversQuestion = directFactoryReset
