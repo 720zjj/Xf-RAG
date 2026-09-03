@@ -81,5 +81,5 @@ test('管理员自动模式与顾客端共用普通问答管线，显式深度�
 
   assert.match(askHandler, /ragMode === 'react' \|\| ragMode === 'plan-solve'/)
   assert.doesNotMatch(askHandler, /ragMode === 'plan-solve' \|\| ragMode === 'auto'/)
-  assert.match(askHandler, /fetch\(`\$\{API\}\/rag\/ask`/)
+  assert.match(askHandler, /supportApiFetch\(`\$\{API\}\/rag\/ask`/)
 })

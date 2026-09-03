@@ -550,6 +550,32 @@ test('当前型号没有精确语言资料时仍可先用直接通用资料回�
   assert.match(result.answer, /83 种语言在线互译/)
 })
 
+test('英语能否翻译使用当前型号明确列出英语的资料直接回答', async () => {
+  let calls = 0
+  const result = await createTrustedAnswer({
+    question: '英语能翻译吗？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: [{
+      evidenceId: 'E36',
+      title: '讯飞双屏翻译机2.0官方常见问题.md',
+      excerpt: '【章节：双屏翻译机 2.0 可以翻译哪些国家的语言？】双屏翻译机 2.0 支持 80 多种外语在线翻译。离线翻译支持中文普通话与 17 种语言互译：英语、日语、韩语、俄语、法语。',
+      sourceType: 'document_chunk',
+      productModel: '翻译机2.0',
+      sourceProductModel: '讯飞双屏翻译机2.0',
+      rerankScore: 0.8,
+      coversQuestion: true
+    }],
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.equal(result.answerSource, 'trusted-extractive')
+  assert.match(result.answer, /英语/)
+  assert.deepEqual(result.sources.map(source => source.evidenceId), ['E36'])
+})
+
 test('双屏 2.0 没网翻译问题使用本型号内置离线包资料直接回答', async () => {
   let calls = 0
   const result = await createTrustedAnswer({

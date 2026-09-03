@@ -598,7 +598,23 @@ export default function App() {
     'Content-Type': 'application/json',
     ...(supportMode && supportChannelCode ? { 'X-Support-Channel': supportChannelCode } : {})
   })
-  const supportApiFetch = (path, options) => fetch(path, options)
+  const supportApiFetch = async (path, options) => {
+    let response = await fetch(path, options)
+    if (!supportMode || response.status !== 401 || !supportChannelCode || String(path).includes('/support-channels/resolve/')) {
+      return response
+    }
+
+    // 顾客可能把扫码页在微信里保留很久。匿名会话到期时重新解析同一条
+    // 有效渠道，换取新的 HttpOnly Cookie，再安全地重试一次原请求。
+    const renewed = await fetch(`${API}/support-channels/resolve/${encodeURIComponent(supportChannelCode)}`, {
+      cache: 'no-store'
+    })
+    const renewedData = await renewed.json().catch(() => null)
+    if (!renewed.ok || !renewedData?.ok || !renewedData.data) return response
+    setSupportChannel(renewedData.data)
+    response = await fetch(path, options)
+    return response
+  }
 
   const resetRagResult = () => {
     setRagAnswer(''); setRagAnswerTarget(''); setRagAnswerDisplay(''); setRagAnswerBlocks([]); setRagTrust(null); setRagTraceId(null); setRagSources([])
@@ -640,7 +656,7 @@ export default function App() {
     if (resolvedVideoIds.has(video.id) || resolvingVideoId === video.id) return
     setResolvingVideoId(video.id)
     try {
-      const response = await fetch(`${API}/video/${video.id}/resolve`, {
+      const response = await supportApiFetch(`${API}/video/${video.id}/resolve`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({ qaId: ragQaId })
@@ -674,7 +690,7 @@ export default function App() {
     if (!ragTraceId || answerFeedbackLoading) return
     setAnswerFeedbackLoading(true)
     try {
-      const response = await fetch(`${API}/rag/feedback`, {
+      const response = await supportApiFetch(`${API}/rag/feedback`, {
         method: 'POST',
         headers: apiHeaders(),
         body: JSON.stringify({ traceId: ragTraceId, outcome, reasonCode: outcome === 'unsolved' ? 'unspecified' : '' })
@@ -1084,7 +1100,7 @@ export default function App() {
       }
       if (canUseAdminRagControls && ragReflection && ragMode !== 'reflection') body.reflection = true
       if (isCustomerExperience) setRagQuestion('')
-      const r = await fetch(`${API}/rag/ask`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) })
+      const r = await supportApiFetch(`${API}/rag/ask`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) })
       const d = await r.json()
       if (d.ok) {
         setRagAnswer(d.data.answer)

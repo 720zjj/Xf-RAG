@@ -20,7 +20,32 @@ const TRANSLATION_LANGUAGE_EVIDENCE_ACTION = new RegExp(
 )
 const SUPPORTED_LANGUAGE_CAPABILITY_QUESTION_PATTERN = /(?:(?:可以|能(?:够)?|可|支持).{0,10}(?:翻译|互译).{0,12}(?:哪些|什么|多少).{0,8}(?:国家|地区|语言|语种)|(?:支持|可翻译|能翻译).{0,12}(?:哪些|什么|多少).{0,8}(?:语言|语种)|(?:哪些|什么).{0,6}(?:国家|地区).{0,6}(?:的)?(?:语言|语种).{0,8}(?:可以|能(?:够)?|支持)?(?:翻译)?)/
 const SUPPORTED_LANGUAGE_CAPABILITY_FALSE_PATTERN = /(?:怎么|如何|怎样)(?:切换|选择|更换|设置)|(?:切换|选择|更换|设置).{0,8}(?:语言|语种)|语言包/
-const SUPPORTED_LANGUAGE_CAPABILITY_EVIDENCE_PATTERN = /(?:(?:在线|离线|拍照)?翻译.{0,20}支持.{0,16}(?:(?:80\s*(?:多|余)?|83|85|18|17|16|42|32)\s*种(?:语言|语种|外语)|中文普通话.{0,80}(?:英语|日语|韩语))|支持.{0,20}(?:(?:80\s*(?:多|余)?|83|85|18|17|16|42|32)\s*种(?:语言|语种|外语)|中文普通话.{0,80}(?:英语|日语|韩语)).{0,20}(?:翻译|互译)|翻译机支持哪些语种.{0,80}(?:在线|离线|英语|日语|韩语))/
+const SUPPORTED_LANGUAGE_COUNT_EVIDENCE_PATTERN = /(?:(?:80\s*(?:多|余)?\s*个?)|83|85|18|17|16|42|32)\s*(?:种)?(?:语言|语种|外语)/
+const SUPPORTED_LANGUAGE_LIST_EVIDENCE_PATTERN = /(?:中文(?:普通话)?|英语|日语|韩语).{0,100}(?:英语|日语|韩语|俄语|法语|西班牙语|德语|阿拉伯语)/
+const SUPPORTED_LANGUAGE_CAPABILITY_CONTEXT_PATTERN = /(?:在线|离线|拍照)?翻译|互译/
+const SUPPORTED_LANGUAGE_CAPABILITY_ASSERTION_PATTERN = /支持|可翻译|能翻译|包括|互译/
+const SPECIFIC_LANGUAGE_CAPABILITY_PATTERN = /(?:(?:可以|能(?:够)?|可|支持|是否能|是否可以).{0,14}(?:翻译|互译)|(?:翻译|互译).{0,14}(?:可以|能(?:够)?|可|支持))/
+const SPECIFIC_LANGUAGE_CAPABILITY_FALSE_PATTERN = /(?:无法|不支持|翻译不了|翻译失败|不能翻译)/
+const DOCUMENTED_TRANSLATION_LANGUAGES = Object.freeze([
+  { question: /(?:英语|英文)/, evidence: /(?:英语|英文)/ },
+  { question: /(?:日语|日文)/, evidence: /(?:日语|日文)/ },
+  { question: /(?:韩语|韩文|韩国语)/, evidence: /(?:韩语|韩文|韩国语)/ },
+  { question: /俄语/, evidence: /俄语/ },
+  { question: /法语/, evidence: /法语/ },
+  { question: /西班牙语/, evidence: /西班牙语/ },
+  { question: /德语/, evidence: /德语/ },
+  { question: /意大利语/, evidence: /意大利语/ },
+  { question: /葡萄牙语/, evidence: /葡萄牙语/ },
+  { question: /阿拉伯语/, evidence: /阿拉伯语/ },
+  { question: /越南语/, evidence: /越南语/ },
+  { question: /泰语/, evidence: /泰语/ },
+  { question: /印地语/, evidence: /印地语/ },
+  { question: /(?:印尼语|印度尼西亚语)/, evidence: /(?:印尼语|印度尼西亚语)/ },
+  { question: /土耳其语/, evidence: /土耳其语/ },
+  { question: /维吾尔语/, evidence: /维吾尔语/ },
+  { question: /藏语/, evidence: /藏语/ },
+  { question: /(?:中文|汉语|普通话)/, evidence: /(?:中文|汉语|普通话)/ }
+])
 const TRANSLATION_REPLAY_CONTEXT_PATTERN = /(翻译结果|翻译内容|译文|翻译记录|历史翻译)/
 const TRANSLATION_REPLAY_ACTION_PATTERN = /(?:(?:重新|再次|重复|再)(?:播放|播报|朗读|收听|听)|重播|回放|复听|点读)/
 const TRANSLATION_REPLAY_TROUBLESHOOTING_PATTERN = /(无法|不能|不行|失败|没反应|没声音|无声音|故障)/
@@ -40,7 +65,7 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'supported-language-capability',
     question: text => isSupportedLanguageCapabilityQuestion(text),
-    evidence: text => isSupportedLanguageCapabilityEvidence(text)
+    evidence: (text, question) => isSupportedLanguageCapabilityEvidence(text, question)
   },
   {
     id: 'offline-translation-capability',
@@ -176,7 +201,7 @@ export function isDirectSupportEvidence(question, value) {
   const intent = getDirectSupportIntent(question)
   if (!intent) return false
   const profile = DIRECT_SUPPORT_INTENTS.find(item => item.id === intent)
-  return Boolean(profile?.evidence(String(value || '').replace(/\s+/g, ' ')))
+  return Boolean(profile?.evidence(String(value || '').replace(/\s+/g, ' '), question))
 }
 
 /**
@@ -243,15 +268,31 @@ export function isTranslationLanguageSwitchEvidence(value) {
 /** “支持哪些语言”是能力范围问题，不是“如何切换语种”的界面操作。 */
 export function isSupportedLanguageCapabilityQuestion(question) {
   const text = String(question || '').replace(/\s+/g, '')
+  const normalized = text.replace(/能不能/g, '是否能').replace(/可不可以/g, '是否可以')
+  const requestedLanguage = DOCUMENTED_TRANSLATION_LANGUAGES.find(item => item.question.test(normalized))
+  const asksAboutSpecificLanguage = Boolean(
+    requestedLanguage
+    && SPECIFIC_LANGUAGE_CAPABILITY_PATTERN.test(normalized)
+    && !SPECIFIC_LANGUAGE_CAPABILITY_FALSE_PATTERN.test(normalized)
+  )
   return Boolean(text
-    && SUPPORTED_LANGUAGE_CAPABILITY_QUESTION_PATTERN.test(text)
+    && (SUPPORTED_LANGUAGE_CAPABILITY_QUESTION_PATTERN.test(text) || asksAboutSpecificLanguage)
     && !SUPPORTED_LANGUAGE_CAPABILITY_FALSE_PATTERN.test(text))
 }
 
-export function isSupportedLanguageCapabilityEvidence(value) {
+export function isSupportedLanguageCapabilityEvidence(value, question = '') {
   const text = String(value || '').replace(/\s+/g, ' ').trim()
+  const normalizedQuestion = String(question || '').replace(/\s+/g, '')
+    .replace(/能不能/g, '是否能')
+    .replace(/可不可以/g, '是否可以')
+  const requestedLanguage = DOCUMENTED_TRANSLATION_LANGUAGES.find(item => item.question.test(normalizedQuestion))
+  const hasCapabilityStatement = SUPPORTED_LANGUAGE_CAPABILITY_CONTEXT_PATTERN.test(text)
+    && SUPPORTED_LANGUAGE_CAPABILITY_ASSERTION_PATTERN.test(text)
+  const hasCapabilityRange = hasCapabilityStatement
+    && (SUPPORTED_LANGUAGE_COUNT_EVIDENCE_PATTERN.test(text) || SUPPORTED_LANGUAGE_LIST_EVIDENCE_PATTERN.test(text))
   return Boolean(text
-    && SUPPORTED_LANGUAGE_CAPABILITY_EVIDENCE_PATTERN.test(text)
+    && hasCapabilityRange
+    && (!requestedLanguage || requestedLanguage.evidence.test(text))
     && !/(?:上滑|点击|进入).{0,30}(?:语种列表|语言栏)/.test(text))
 }
 

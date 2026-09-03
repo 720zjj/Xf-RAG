@@ -66,9 +66,9 @@ test('拒答题不允许宽泛视频或 SOP 推荐', () => {
   assert.ok(result.failures.some(message => message.includes('不应推荐')))
 })
 
-test('上线回归题库覆盖 43 次问答与连续会话', () => {
+test('上线回归题库覆盖 45 次问答与连续会话', () => {
   const cases = loadLiveAuditCases(new URL('./fixtures/rag-launch-audit.json', import.meta.url))
-  assert.equal(cases.length, 43)
+  assert.equal(cases.length, 45)
   assert.equal(cases.filter(item => item.sessionGroup === 'wifi-followup').length, 4)
   assert.equal(cases.filter(item => item.requireOfficialVideo).length, 12)
 })

@@ -309,6 +309,44 @@ test('支持语言的精确规格优先当前型号官方资料而不是高分�
   assert.equal(selected[0].selectionReason, 'intent-match')
 })
 
+test('询问某个具体语种时只把明确列出该语种的能力资料标为直接证据', () => {
+  const selected = selectEvidence([
+    {
+      ...duplicateWifi,
+      docId: 34,
+      chunkId: 274,
+      docName: '讯飞双屏翻译机2.0官方常见问题.md',
+      text: '【章节：支持语种】双屏翻译机 2.0 支持 80 多种外语在线翻译，离线支持中文普通话与 17 种语言互译：英语、日语、韩语。',
+      score: 0.7,
+      metadata: {
+        productLine: '翻译机',
+        productModel: '翻译机2.0',
+        sourceProductModel: '讯飞双屏翻译机2.0',
+        effectiveStatus: 'active'
+      }
+    },
+    {
+      ...duplicateWifi,
+      docId: 35,
+      chunkId: 275,
+      docName: '相邻语种说明.md',
+      text: '【章节：支持语种】离线翻译支持中文普通话与日语、韩语互译。',
+      score: 1.1,
+      metadata: {
+        productLine: '翻译机',
+        productModel: '翻译机2.0',
+        sourceProductModel: '讯飞双屏翻译机2.0',
+        effectiveStatus: 'active'
+      }
+    }
+  ], { question: '英语能翻译吗？', requestedModel: '翻译机2.0' })
+
+  assert.equal(selected[0].chunkId, 274)
+  assert.equal(selected[0].selectionReason, 'intent-match')
+  assert.equal(selected[0].coversQuestion, true)
+  assert.equal(selected.find(item => item.chunkId === 275).coversQuestion, false)
+})
+
 test('重新播放问题优先选择点读复听资料并排除仅自动朗读的片段', () => {
   const selected = selectEvidence([
     {
