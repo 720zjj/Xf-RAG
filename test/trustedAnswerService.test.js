@@ -45,6 +45,24 @@ test('证据不足时不调用生成器而返回拒答', async () => {
   assert.deepEqual(result.sources, [])
 })
 
+test('联网排查仍失败并询问找谁时直接转人工，不显示资料不足', async () => {
+  let calls = 0
+  const result = await createTrustedAnswer({
+    question: '翻译机 Wi-Fi 仍然连接失败，应该联系谁处理？',
+    decision: refused,
+    evidence: [],
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.equal(result.trust.reasonCode, 'support-escalation')
+  assert.equal(result.answerSource, 'system-support-routing')
+  assert.match(result.answer, /联系人工客服或官方售后/)
+  assert.match(result.answer, /型号、网络名称、报错提示/)
+  assert.doesNotMatch(result.answer, /资料没有覆盖|不能根据相近内容推测/)
+})
+
 test('起火处置未被资料明确覆盖时返回紧急提示和人工客服时间', async () => {
   const vagueFireWarning = [{
     evidenceId: 'E1',

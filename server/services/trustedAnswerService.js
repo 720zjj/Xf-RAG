@@ -181,6 +181,39 @@ export function buildRefusalAnswer(decision = {}) {
   }
 }
 
+function buildSupportEscalationAnswer() {
+  const blocks = [
+    {
+      kind: 'conclusion',
+      text: '如果已经核对网络和密码、重新连接后仍然失败，请联系人工客服或官方售后处理。',
+      evidenceIds: []
+    },
+    {
+      kind: 'details',
+      text: '联系时请说明翻译机型号、网络名称、报错提示，以及已经尝试过的排查步骤，便于客服继续定位。',
+      evidenceIds: []
+    },
+    {
+      kind: 'notice',
+      text: '人工客服服务时间为每日 09:00–18:00。',
+      evidenceIds: []
+    }
+  ]
+  return {
+    answer: formatAnswerBlocks(blocks),
+    answerBlocks: blocks,
+    trust: {
+      level: 'answer',
+      reasonCode: 'support-escalation',
+      message: '已识别为联网排查后的人工服务请求。',
+      suggestions: [],
+      thresholdVersion: null
+    },
+    sources: [],
+    answerSource: 'system-support-routing'
+  }
+}
+
 function validationRefusal(decision, question = '') {
   return buildRefusalAnswer(contextualRefusal(question, {
     ...decision,
@@ -490,7 +523,10 @@ function buildExtractiveAnswer({ question, evidence, decision, requestedModel = 
  * allowed it, then blocks output with unknown or missing evidence references.
  */
 export async function createTrustedAnswer({ question = '', evidence = [], decision = {}, requestedModel = '', generate } = {}) {
-  if (decision.level === 'refuse') return buildRefusalAnswer(contextualRefusal(question, decision))
+  if (decision.level === 'refuse') {
+    if (getDirectSupportIntent(question) === 'network-support-escalation') return buildSupportEscalationAnswer()
+    return buildRefusalAnswer(contextualRefusal(question, decision))
+  }
   if (!hasEmergencyGuidance(question, evidence)) {
     return buildRefusalAnswer(contextualRefusal(question, decision))
   }
