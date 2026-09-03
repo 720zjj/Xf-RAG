@@ -48,8 +48,9 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'no-sound',
     question: text => /(?:没有|没|无)(?:声音|声)|不出声|听不到(?:声音|播报)/.test(text),
-    // “切换男女声”不能作为“设备无声”的故障排查依据。
-    evidence: () => false
+    // “切换男女声”不能作为“设备无声”的故障排查依据；只接受完整的无声排查段落。
+    evidence: text => /设备没有声音怎么办/.test(text)
+      && /静音/.test(text) && /媒体音量/.test(text) && /(?:蓝牙耳机|音频设备)/.test(text)
   },
   {
     id: 'network-support-escalation',
@@ -81,7 +82,7 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'power-on-failure',
     question: text => /(?:翻译机|设备).{0,6}(?:无法|不能|开不了|打不开).{0,4}开机|(?:无法|不能|开不了|打不开)开机/.test(text),
-    evidence: text => /翻译机无法开机怎么办/.test(text)
+    evidence: text => /(?:翻译机|设备)无法开机怎么办/.test(text)
       && /充电/.test(text) && /电源键/.test(text) && /(?:官方)?售后/.test(text)
   },
   {

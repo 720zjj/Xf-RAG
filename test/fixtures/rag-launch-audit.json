@@ -24,7 +24,7 @@
 
   {"id":"S01","productModel":"翻译机4.0","question":"翻译机连不上 Wi-Fi 怎么办？","expectedTrust":"answer","requiredAnyGroups":[["密码"],["网络","WiFi","Wi-Fi"],["重新连接","重试"]],"expectedSourceTitlesAny":["售后FAQ"]},
   {"id":"S02","productModel":"翻译机4.0","question":"输入正确密码后为什么还是连不上网络？","expectedTrust":"answer","requiredAnyGroups":[["密码"],["网络","路由器","信号"],["重新连接","重试"]],"expectedSourceTitlesAny":["售后FAQ"]},
-  {"id":"S03","productModel":"翻译机4.0","question":"翻译机没有声音怎么办？","expectedTrust":"refuse","requiredAnyGroups":[["没有覆盖","资料没有","暂不能","无法"],["人工客服","售后"]],"forbidRecommendations":true},
+  {"id":"S03","productModel":"翻译机4.0","question":"翻译机没有声音怎么办？","expectedTrust":"answer","requiredAnyGroups":[["静音"],["媒体音量"],["蓝牙耳机","音频设备"],["售后"]],"minimumNumberedSteps":4,"expectedSourceTitlesAny":["通用基础售后排查"],"forbidRecommendations":true},
   {"id":"S04","productModel":"翻译机4.0","question":"翻译机无法开机怎么办？","expectedTrust":"answer","requiredAnyGroups":[["充电","电量"],["电源键"],["售后"]],"minimumNumberedSteps":3,"expectedSourceTitlesAny":["售后FAQ","快速入门指南"]},
   {"id":"S05","productModel":"翻译机4.0","question":"翻译速度很慢怎么办？","expectedTrust":"refuse","requiredAnyGroups":[["没有覆盖","资料没有","暂不能","无法"],["人工客服","售后"]],"forbidden":["播报语速"],"forbidRecommendations":true},
   {"id":"S06","productModel":"翻译机4.0","question":"翻译结果不准确怎么办？","expectedTrust":"answer","requiredAnyGroups":[["语速"],["噪声","噪音"],["发音","麦孔","距离"]],"expectedSourceTitlesAny":["售后FAQ"]},

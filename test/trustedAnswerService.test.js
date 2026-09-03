@@ -159,6 +159,33 @@ test('双屏 2.0 锁定后宽泛首次使用问题直接返回本型号激活流
   assert.equal(result.sources[0].docName, '讯飞双屏翻译机2.0官方快速上手视频核验')
 })
 
+test('双屏 2.0 的无法开机问题使用两款产品通用的非侵入式排查步骤', async () => {
+  const powerEvidence = [{
+    evidenceId: 'E1',
+    title: '两款翻译机通用基础售后排查',
+    excerpt: '【章节：设备无法开机怎么办？】 1. 先连接状态正常的充电线和适配器，为设备持续充电至少 10 分钟。 2. 充电后长按设备电源键尝试开机，并观察屏幕或指示灯是否有反应。 3. 若仍无反应，可分别更换已确认正常的充电线、适配器和插座后再试一次。 4. 如果设备曾进水、摔落，或出现异常发热、异味、鼓包，请停止充电和反复开机，将设备放在远离易燃物的安全位置并联系官方售后。 5. 完成上述外部检查后仍无法开机，请联系人工客服或官方售后检测；不要自行拆机，也不要套用其他型号的强制重启组合键。',
+    sourceType: 'document_chunk',
+    rerankScore: 0.88,
+    coversQuestion: true
+  }]
+  let calls = 0
+
+  const result = await createTrustedAnswer({
+    question: '设备无法开机怎么办？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: powerEvidence,
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.match(result.answer, /1、先连接状态正常的充电线和适配器/)
+  assert.match(result.answer, /长按设备电源键/)
+  assert.match(result.answer, /不要自行拆机/)
+  assert.equal(result.sources[0].docName, '两款翻译机通用基础售后排查')
+})
+
 test('带未知引用 ID 的模型结果会安全拒答', async () => {
   const result = await createTrustedAnswer({
     question: '支持自定义术语吗？',

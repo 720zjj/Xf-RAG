@@ -31,6 +31,8 @@ test('direct support intent distinguishes covered troubleshooting from misleadin
   assert.equal(isDirectSupportEvidence('翻译结果不准确怎么办？', 'Q8：翻译结果不准确怎么办？ 减少背景噪音，正常语速说话。'), true)
   assert.equal(isDirectSupportEvidence('翻译结果不准确怎么办？', 'Q3：翻译结果不准确怎么办？请用正常语速说话并减少背景噪声。'), true)
   assert.equal(isDirectSupportEvidence('翻译机无法开机怎么办？', 'Q10：翻译机无法开机怎么办？先连接充电线充电，再长按电源键；仍无反应请联系官方售后。'), true)
+  assert.equal(isDirectSupportEvidence('设备无法开机怎么办？', '设备无法开机怎么办？先连接充电线和适配器充电，再长按电源键；仍无反应请联系官方售后。'), true)
+  assert.equal(isDirectSupportEvidence('翻译机没有声音怎么办？', '设备没有声音怎么办？确认没有静音并调高媒体音量，断开蓝牙耳机或其他音频设备后重试。'), true)
   assert.equal(isDirectSupportEvidence('翻译机发热正常吗？', 'Q12：翻译机发热正常吗？若温度过高，请停止充电并联系官方售后。'), true)
   assert.equal(isDirectSupportEvidence('翻译机充不进去电怎么办？', 'Q11：翻译机充不进去电怎么办？检查充电线、适配器、接口、灰尘或异物。'), true)
   assert.equal(isDirectSupportEvidence('翻译速度很慢怎么办？', '设置 → 播报语速'), false)
