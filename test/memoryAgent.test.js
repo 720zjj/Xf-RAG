@@ -5,6 +5,9 @@ import {
   addToHistory,
   clearSession,
   rewriteWithContext,
+  stableQuestionIntent,
+  isSelfContainedProductQuestion,
+  shouldResolveWithContext,
   formatHistoryForPrompt,
   getActiveSessionCount
 } from '../server/services/memoryAgent.js'
@@ -71,4 +74,26 @@ test('历史格式化：回答超 200 字符时截断并加省略号', () => {
   const prompt = formatHistoryForPrompt('s-long', 1)
   assert.ok(prompt.length < 500)
   assert.match(prompt, /\.\.\./)
+})
+
+test('重写判定：完整的翻译机问题不会被上一轮话题带偏', () => {
+  const standaloneQuestions = [
+    '具体怎么使用这个翻译机',
+    '第一次使用这台翻译机怎么操作？',
+    '设备无法开机怎么办？',
+    '英语能翻译吗？',
+    '这个翻译机也支持英语吗？',
+    '翻译机怎么连接 Wi-Fi？'
+  ]
+  for (const question of standaloneQuestions) {
+    assert.equal(shouldResolveWithContext(question), false, question)
+  }
+  assert.equal(stableQuestionIntent('具体怎么使用这个翻译机'), 'getting-started')
+  assert.equal(isSelfContainedProductQuestion('设备无法开机怎么办？'), true)
+})
+
+test('重写判定：真正省略主语或动作的追问仍使用对话历史', () => {
+  for (const question of ['那怎么操作？', '它呢？', '这个翻译机也可以吗？', '还是不行']) {
+    assert.equal(shouldResolveWithContext(question), true, question)
+  }
 })

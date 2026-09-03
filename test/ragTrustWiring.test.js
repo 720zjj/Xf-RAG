@@ -62,3 +62,12 @@ test('SOP 证据与展示块采用相同的步骤、前置条件和警告顺序'
   assert.match(source, /\.\.\.steps, \.\.\.prerequisites, \.\.\.warnings, sop\.completion_check/)
   assert.match(source, /parseJsonList\(sop\.steps\)\.map\(formatSopStep\)\.filter\(Boolean\)/)
 })
+
+test('普通问答和流式问答都在型号检索前处理助手身份问题', () => {
+  const source = read('../server/routes/rag.js')
+
+  assert.match(source, /isAssistantIdentityQuestion/)
+  assert.match(source, /answerAssistantIdentity/)
+  assert.equal((source.match(/if \(isAssistantIdentityQuestion\(question\)\)/g) || []).length, 2)
+  assert.match(source, /retrievalMode:\s*'系统能力说明'/)
+})

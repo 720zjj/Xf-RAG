@@ -11,6 +11,7 @@ import { chunkDocument, loadUserChunks } from '../services/chunkStore.js'
 import { filterChunkBundle } from '../services/ragFilters.js'
 import { buildKnowledgeScope } from '../services/knowledgeAccess.js'
 import { buildVideoGuidance, extractRecommendationKeywords, filterSopRecommendationsForQuestion, findVideoRecommendations } from '../services/recommendations.js'
+import { buildAssistantIdentityAnswer, isAssistantIdentityQuestion } from '../services/assistantIdentity.js'
 
 import { createRateLimit } from '../middleware/rateLimit.js'
 import { formatSopStep, resolveSopFastPath } from '../services/sopFastPath.js'
@@ -159,6 +160,36 @@ async function persistTrustedTrace(input) {
   }
 }
 
+async function answerAssistantIdentity({ endpoint, userId, question, productLine = '', productModel = '' }) {
+  const startedAt = Date.now()
+  const identity = buildAssistantIdentityAnswer()
+  let qaId
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO rag_qa (user_id, document_id, question, answer, sources, bm25_scores)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [userId, null, question, identity.answer, JSON.stringify([]), JSON.stringify([])]
+    )
+    qaId = result.insertId
+  } catch (error) {
+    console.warn('[RAG] 保存助手身份回答失败：', error.message)
+  }
+  const traceId = await persistTrustedTrace({
+    userId,
+    qaId,
+    endpoint,
+    question,
+    effectiveQuestion: question,
+    productLine,
+    productModel,
+    trust: identity.trust,
+    timing: { totalMs: Date.now() - startedAt },
+    evidence: [],
+    metadata: { answerSource: identity.answerSource, retrievalMode: 'system-capability' }
+  })
+  return { ...identity, qaId, traceId }
+}
+
 async function saveSopFastAnswer(userId, question, answer, sop) {
   try {
     const [result] = await pool.query(
@@ -293,6 +324,19 @@ router.post('/ask', supportGuestOrAuthMiddleware, ragRateLimit, async (req, res)
     const scopeMetadata = requestScope ? [{ productLine: filterProductLine, productModel: filterModel, effectiveStatus: 'active' }] : []
     const adminRequest = isAdmin(req)
     const customerExperience = isCustomerExperienceRequest(req)
+    if (isAssistantIdentityQuestion(question)) {
+      const identity = await answerAssistantIdentity({
+        endpoint: 'ask', userId: req.user.id, question,
+        productLine: filterProductLine, productModel: filterModel
+      })
+      if (sessionId) addToHistory(scopedSessionId(req, sessionId), question, identity.answer)
+      return sendRagSuccess(req, res, {
+        ...identity,
+        totalChunks: 0,
+        totalDocs: 0,
+        retrievalMode: '系统能力说明'
+      })
+    }
     const requestedMode = customerExperience ? 'default' : (req.body.mode || 'auto')
     if (!ALLOWED_RAG_MODES.has(requestedMode)) return res.status(400).json({ ok: false, error: '不支持的检索模式' })
     const fastPathFilters = { productLine: filterProductLine, productModel: filterModel }
@@ -939,6 +983,22 @@ router.post('/ask-stream', authMiddleware, requireAdmin, ragRateLimit, async (re
   }
 
   try {
+    if (isAssistantIdentityQuestion(question)) {
+      const identity = await answerAssistantIdentity({
+        endpoint: 'ask-stream', userId: req.user.id, question, productLine, productModel
+      })
+      if (sessionId) addToHistory(scopedSessionId(req, sessionId), question, identity.answer)
+      send('answer', { answer: identity.answer, answerSource: identity.answerSource, trust: identity.trust })
+      send('done', {
+        qaId: identity.qaId,
+        traceId: identity.traceId,
+        trust: identity.trust,
+        answerBlocks: identity.answerBlocks,
+        sources: identity.sources,
+        agent: { mode: 'system-capability' }
+      })
+      return
+    }
     const fastPathFilters = { productLine, productModel }
     const fastPath = rawMode === 'auto'
       ? await resolveSopFastPath(question, fastPathFilters)

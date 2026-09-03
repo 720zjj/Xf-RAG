@@ -7,6 +7,13 @@
  */
 
 import { callLLM, isLLMEnabled } from './langchainLLM.js'
+import {
+  getDirectSupportIntent,
+  isGettingStartedQuestion,
+  isNetworkSetupQuestion,
+  isTranslationLanguageSwitchQuestion,
+  isTranslationReplayQuestion
+} from './questionIntent.js'
 
 // ─── 会话存储 ────────────────────────────────────────────────────────────────
 
@@ -83,6 +90,43 @@ const COREF_SYSTEM_PROMPT = `你是一个查询重写专家。根据对话历史
 4. 保持用户原意，不要添加额外信息
 5. 用中文输出`
 
+const PRODUCT_SUBJECT_PATTERN = /(?:这个|这台|该|当前|我的|本)?(?:翻译机|设备|机器|本机)/
+const VAGUE_PRODUCT_FOLLOW_UP_PATTERN = /^(?:(?:这个|这台|那个|那台|该|当前|我的)?(?:翻译机|设备|机器|本机))?(?:也)?(?:呢|怎么样|如何|可以吗|行吗|支持吗|怎么办)$/
+
+/**
+ * Return a stable intent only when the current sentence already names a
+ * complete product task. These questions must not inherit an unrelated topic
+ * merely because they contain “这/吗/也”.
+ */
+export function stableQuestionIntent(question) {
+  const text = String(question || '').replace(/\s+/g, '').trim()
+  if (!text) return ''
+  const direct = getDirectSupportIntent(text)
+  if (direct) return direct
+  if (isGettingStartedQuestion(text)) return 'getting-started'
+  if (isNetworkSetupQuestion(text)) return 'network-setup'
+  if (isTranslationLanguageSwitchQuestion(text)) return 'translation-language-switch'
+  if (isTranslationReplayQuestion(text)) return 'translation-replay'
+  return ''
+}
+
+/** A named product plus a real predicate is a standalone question. */
+export function isSelfContainedProductQuestion(question) {
+  const text = String(question || '')
+    .replace(/[，。！？、,.!?；;：:\s]/g, '')
+    .trim()
+  if (!PRODUCT_SUBJECT_PATTERN.test(text) || VAGUE_PRODUCT_FOLLOW_UP_PATTERN.test(text)) return false
+  return text.length >= 6 && /(?:怎么|如何|怎样|为什么|是否|能否|能不能|可不可以|哪里|多少|多久|使用|操作|联网|网络|连接|开机|关机|充电|翻译|播放|查看|切换|设置|修复|处理|解决|排查|恢复|激活|拍照|录音|同步|导出|支持.+)/.test(text)
+}
+
+/** Exposed as a pure predicate so regressions do not depend on a live LLM. */
+export function shouldResolveWithContext(question) {
+  const text = String(question || '').trim()
+  if (!text || text.length >= 30) return false
+  if (stableQuestionIntent(text) || isSelfContainedProductQuestion(text)) return false
+  return /(?:它|这|那|其|上面|前面|刚才|之前|同样|还有|也|呢$|还是不行|仍然不行|依然不行)/.test(text)
+}
+
 /**
  * 上下文感知查询重写（指代消解 + 省略补全）
  * @param {string} sessionId - 会话 ID
@@ -112,9 +156,7 @@ export async function rewriteWithContext(sessionId, question) {
   }
 
   // 检测是否可能需要指代消解（快速规则预判，避免无意义的 LLM 调用）
-  const needsResolution =
-    /[它这那其]|上面|前面|刚才|之前|同样|也|还有|呢$|吗$/.test(question) &&
-    question.length < 30  // 短问题更可能有指代
+  const needsResolution = shouldResolveWithContext(question)
 
   if (!needsResolution) {
     return { rewritten: question, resolved: false }
@@ -136,7 +178,15 @@ export async function rewriteWithContext(sessionId, question) {
     )
 
     const rewritten = result.trim().replace(/^["'""'']|["'""'']$/g, '')  // 去除可能的引号包裹
-    const resolved = rewritten !== question && rewritten.length > 0
+    const originalIntent = stableQuestionIntent(question)
+    const rewrittenIntent = stableQuestionIntent(rewritten)
+    const intentDrifted = Boolean(originalIntent && rewrittenIntent && originalIntent !== rewrittenIntent)
+    const resolved = !intentDrifted && rewritten !== question && rewritten.length > 0
+
+    if (intentDrifted) {
+      console.warn(`[Memory] 放弃改变问题类型的重写："${question}" → "${rewritten}"`)
+      return { rewritten: question, resolved: false }
+    }
 
     if (resolved) {
       console.log(`[Memory] 指代消解："${question}" → "${rewritten}"`)
