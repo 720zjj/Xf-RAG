@@ -86,6 +86,31 @@ test('宽泛新手问题在候选截断后仍锚定同型号官方入门片段',
   assert.equal(result[0].metadata.productModel, '翻译机4.0')
 })
 
+test('宽泛语种问题优先锚定产品能力范围而不是拍照翻译数量', () => {
+  const chunks = [
+    '在首页进入拍照翻译；官方产品页标注支持 32 种语言拍照翻译。',
+    '在线语音翻译：官方产品页标注支持 85 种语言在线翻译。',
+    '离线语音翻译支持中文普通话与英语、日语、韩语等 17 种语言。'
+  ]
+  const sources = [
+    { docId: 1, docName: '用户操作手册.md' },
+    { docId: 2, docName: '产品功能说明.md' },
+    { docId: 2, docName: '产品功能说明.md' }
+  ]
+  const metadata = chunks.map(() => ({ productModel: '翻译机4.0' }))
+  const result = anchorGettingStartedResults(
+    '能翻译什么语种？',
+    [{ index: 0, text: chunks[0], docId: 1, docName: sources[0].docName, metadata: metadata[0] }],
+    chunks,
+    sources,
+    metadata,
+    '翻译机4.0'
+  )
+
+  assert.equal(result[0].index, 1)
+  assert.match(result[0].text, /85 种语言在线翻译/)
+})
+
 test('rewriteQuery：生成检索友好的核心词查询', () => {
   const rewritten = rewriteQuery('翻译机怎么连接WiFi？')
   assert.match(rewritten, /翻译机/)

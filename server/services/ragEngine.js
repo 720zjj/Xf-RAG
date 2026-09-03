@@ -1142,11 +1142,19 @@ export function anchorGettingStartedResults(question, retrieved, allChunks, chun
       const rightSourceModel = Object.hasOwn(right.metadata, 'sourceProductModel') ? right.metadata.sourceProductModel : right.metadata.productModel
       const leftModel = requestedModel && leftSourceModel === requestedModel ? 1 : 0
       const rightModel = requestedModel && rightSourceModel === requestedModel ? 1 : 0
-      const sourcePriority = item => /官方常见问题/.test(String(item.docName || ''))
-        ? 3
-        : /售后FAQ|用户操作手册|安全说明/.test(String(item.docName || ''))
-          ? 2
-          : /官方H5/.test(String(item.docName || '')) ? 1 : 0
+      const sourcePriority = item => {
+        const docName = String(item.docName || '')
+        if (directSupportIntent === 'supported-language-capability') {
+          if (/产品功能说明/.test(docName)) return 4
+          if (/官方常见问题/.test(docName)) return 3
+          if (/用户操作手册/.test(docName)) return 1
+        }
+        return /官方常见问题/.test(docName)
+          ? 3
+          : /售后FAQ|用户操作手册|安全说明|产品功能说明/.test(docName)
+            ? 2
+            : /官方H5/.test(docName) ? 1 : 0
+      }
       return rightModel - leftModel || sourcePriority(right) - sourcePriority(left) || left.index - right.index
     })
     .slice(0, 1)
