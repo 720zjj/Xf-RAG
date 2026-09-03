@@ -18,7 +18,9 @@ import {
   isTranslationReplayEvidence,
   isTranslationReplayQuestion,
   isTranslationLanguageSwitchEvidence,
-  isTranslationLanguageSwitchQuestion
+  isTranslationLanguageSwitchQuestion,
+  isSupportedLanguageCapabilityEvidence,
+  isSupportedLanguageCapabilityQuestion
 } from '../server/services/questionIntent.js'
 
 test('direct support intent distinguishes covered troubleshooting from misleading nearby settings', () => {
@@ -161,6 +163,22 @@ test('识别切换翻译语种意图并排除相邻功能与故障问法', () =>
   assert.equal(isTranslationLanguageSwitchQuestion('怎么切换系统显示语言？'), false)
   assert.equal(isTranslationLanguageSwitchQuestion('离线翻译语言包怎么切换？'), false)
   assert.equal(isTranslationLanguageSwitchQuestion('无法翻译，确认语种正确后还是不行怎么办？'), false)
+})
+
+test('识别支持语种范围问题，并与切换语种操作严格分开', () => {
+  assert.equal(isSupportedLanguageCapabilityQuestion('可以翻译哪些国家的语言？'), true)
+  assert.equal(isSupportedLanguageCapabilityQuestion('翻译机支持多少种语言？'), true)
+  assert.equal(isSupportedLanguageCapabilityQuestion('能翻译什么语种？'), true)
+  assert.equal(isSupportedLanguageCapabilityQuestion('怎么切换翻译语言？'), false)
+  assert.equal(isSupportedLanguageCapabilityQuestion('离线语言包怎么下载？'), false)
+  assert.equal(getDirectSupportIntent('可以翻译哪些国家的语言？'), 'supported-language-capability')
+})
+
+test('支持语种证据必须包含能力数量或语言清单，不能拿切换路径代替', () => {
+  assert.equal(isSupportedLanguageCapabilityEvidence('双屏翻译机 2.0 支持 80 多种外语在线翻译。'), true)
+  assert.equal(isSupportedLanguageCapabilityEvidence('离线翻译支持中文普通话与 17 种语言互译：英语、日语、韩语。'), true)
+  assert.equal(isSupportedLanguageCapabilityEvidence('在语音翻译界面从屏幕下方上滑，可选择需要的翻译语种。'), false)
+  assert.equal(isDirectSupportEvidence('可以翻译哪些国家的语言？', '双屏翻译机 2.0 支持 80 多种外语在线翻译。'), true)
 })
 
 test('翻译语种证据必须直接说明界面动作，不能用相邻资料代替', () => {

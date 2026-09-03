@@ -16,6 +16,7 @@
   {"id":"V2-06","productModel":"翻译机2.0","question":"怎么把翻译记录同步到手机？","expectedTrust":"answer","requiredAnyGroups":[["翻译记录","记录"],["手机","同步","导出"]],"expectedPrimaryVideoTitle":"记录导出","requireOfficialVideo":true},
   {"id":"V2-07","productModel":"翻译机2.0","question":"双屏翻译机第一次怎么激活？","expectedTrust":"answer","requiredAnyGroups":[["激活","首次","快速上手"]],"expectedPrimaryVideoTitle":"快速上手","requireOfficialVideo":true},
   {"id":"V2-08","productModel":"翻译机2.0","question":"如何使用拍照翻译？","expectedTrust":"answer","requiredAnyGroups":[["拍照翻译"],["官方视频","播放"]],"expectedSourceTitlesAny":["双屏翻译机2.0官方H5使用视频索引"],"expectedPrimaryVideoTitle":"拍照翻译","requireOfficialVideo":true},
+  {"id":"V2-09","productModel":"翻译机2.0","question":"可以翻译哪些国家的语言？","expectedTrust":"answer","requiredAnyGroups":[["80 多种","80多种"],["在线翻译"],["17 种语言","17种语言"],["英语"],["日语"]],"forbidden":["怎么切换","上滑","暂不能确认"],"expectedSourceTitlesAny":["双屏翻译机2.0官方常见问题"],"forbidRecommendations":true},
 
   {"id":"V4-01","productModel":"翻译机4.0","question":"4.0 怎么使用免按键翻译？","expectedTrust":"answer","requiredAnyGroups":[["免按键翻译"]],"expectedSourceTitlesAny":["翻译机4.0官方H5使用视频索引","翻译机4.0官方常见问题"],"expectedPrimaryVideoTitle":"免按键翻译","requireOfficialVideo":true},
   {"id":"V4-02","productModel":"翻译机4.0","question":"4.0 怎么使用面对面翻译？","expectedTrust":"answer","requiredAnyGroups":[["面对面翻译"]],"expectedSourceTitlesAny":["翻译机4.0官方H5使用视频索引","翻译机4.0官方常见问题"],"expectedPrimaryVideoTitle":"面对面翻译","requireOfficialVideo":true},

@@ -246,6 +246,32 @@ test('官方常见问题原文会被选为两款机型的翻译语种直接证�
   }
 })
 
+test('支持哪些语言优先选择能力清单，切换语种片段不能冒充直接证据', () => {
+  const selected = selectEvidence([
+    {
+      ...duplicateWifi,
+      chunkId: 270,
+      text: '【章节：翻译机怎么切换翻译语言】进入语音翻译，打开语种列表选择需要的语种。',
+      score: 1.1,
+      factors: { coverage: 1, phraseMatch: true }
+    },
+    {
+      ...duplicateWifi,
+      docId: 24,
+      chunkId: 271,
+      docName: '讯飞双屏翻译机2.0官方常见问题.md',
+      text: '【章节：双屏翻译机 2.0 可以翻译哪些国家的语言？】双屏翻译机 2.0 支持 80 多种外语在线翻译，离线支持中文普通话与 17 种语言互译。',
+      score: 0.7,
+      factors: { coverage: 0.5 }
+    }
+  ], { question: '可以翻译哪些国家的语言？', requestedModel: '翻译机2.0' })
+
+  assert.equal(selected[0].chunkId, 271)
+  assert.equal(selected[0].selectionReason, 'intent-match')
+  assert.equal(selected[0].coversQuestion, true)
+  assert.equal(selected.find(item => item.chunkId === 270).coversQuestion, false)
+})
+
 test('重新播放问题优先选择点读复听资料并排除仅自动朗读的片段', () => {
   const selected = selectEvidence([
     {
