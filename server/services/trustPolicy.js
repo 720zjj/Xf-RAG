@@ -109,6 +109,16 @@ export function decideTrust({
     return refusal('low-retrieval-confidence', currentPolicy)
   }
 
+  if (evidence.some(item => item?.crossModelCommon)) {
+    return {
+      level: 'cautious',
+      reasonCode: 'common-device-guidance',
+      userMessage: '已匹配到知识库中的通用设备排查。以下只采用不依赖型号的安全检查；具体菜单、按键组合和专属功能仍以当前型号资料为准。',
+      suggestions: ['如果通用排查仍未解决，请联系官方售后并说明具体型号。'],
+      thresholdVersion: currentPolicy.thresholdVersion
+    }
+  }
+
   if (evidence.some(item => item?.limitedScope)) {
     return {
       level: 'cautious',

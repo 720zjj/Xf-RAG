@@ -417,7 +417,7 @@ router.post('/ask', supportGuestOrAuthMiddleware, ragRateLimit, async (req, res)
     const availableChunkMetadata = chunkMetadata
     const filtered = filterChunkBundle(
       { contents: allChunks, sources: chunkSources, embeddings, metadata: chunkMetadata },
-      { productLine: filterProductLine, productModel: filterModel, allowedDocumentIds: requestScope?.documentIds }
+      { productLine: filterProductLine, productModel: filterModel, allowedDocumentIds: requestScope?.documentIds, question: effectiveQuestion }
     )
     allChunks = filtered.contents
     chunkSources = filtered.sources
@@ -988,7 +988,7 @@ router.post('/ask-stream', authMiddleware, requireAdmin, ragRateLimit, async (re
       send('done', { qaId: trusted.qaId, traceId: trusted.traceId, trust: trusted.trust, answerBlocks: trusted.answerBlocks, sources: trusted.sources })
       return
     }
-    const filtered = filterChunkBundle(loaded, { productLine, productModel, allowedDocumentIds: requestScope?.documentIds })
+    const filtered = filterChunkBundle(loaded, { productLine, productModel, allowedDocumentIds: requestScope?.documentIds, question })
     if (!filtered.contents.length) {
       const trusted = await answerWithoutMaterial({
         endpoint: 'ask-stream', userId: req.user.id, question, productLine, productModel,
@@ -1227,7 +1227,7 @@ router.post('/ask-agent', authMiddleware, requireAdmin, ragRateLimit, async (req
       send('done', { qaId: trusted.qaId, traceId: trusted.traceId, trust: trusted.trust, answerBlocks: trusted.answerBlocks, sources: trusted.sources })
       return
     }
-    const filtered = filterChunkBundle(loaded, { productLine, productModel, allowedDocumentIds: requestScope?.documentIds })
+    const filtered = filterChunkBundle(loaded, { productLine, productModel, allowedDocumentIds: requestScope?.documentIds, question })
     if (!filtered.contents.length) {
       const trusted = await answerWithoutMaterial({
         endpoint: 'ask-agent', userId: req.user.id, question, productLine, productModel,

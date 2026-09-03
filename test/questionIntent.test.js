@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   getDirectSupportIntent,
+  isCommonDeviceSupportEvidence,
+  isCommonDeviceSupportQuestion,
   isDirectSupportEvidence,
   isGettingStartedEvidence,
   isGettingStartedQuestion,
@@ -36,6 +38,18 @@ test('direct support intent distinguishes covered troubleshooting from misleadin
   assert.equal(isDirectSupportEvidence('翻译机发热正常吗？', 'Q12：翻译机发热正常吗？若温度过高，请停止充电并联系官方售后。'), true)
   assert.equal(isDirectSupportEvidence('翻译机充不进去电怎么办？', 'Q11：翻译机充不进去电怎么办？检查充电线、适配器、接口、灰尘或异物。'), true)
   assert.equal(isDirectSupportEvidence('翻译速度很慢怎么办？', '设置 → 播报语速'), false)
+})
+
+test('只把非侵入式常见故障列为可跨型号通用排查', () => {
+  assert.equal(isCommonDeviceSupportQuestion('设备无法开机怎么办？'), true)
+  assert.equal(isCommonDeviceSupportQuestion('翻译机没有声音怎么办？'), true)
+  assert.equal(isCommonDeviceSupportQuestion('4.0 怎么使用免按键翻译？'), false)
+  assert.equal(isCommonDeviceSupportQuestion('怎么进入面对面翻译？'), false)
+  assert.equal(isCommonDeviceSupportQuestion('怎么恢复出厂设置？'), false)
+  assert.equal(isCommonDeviceSupportEvidence(
+    '设备无法开机怎么办？',
+    '翻译机无法开机怎么办？先充电，再长按电源键；仍无反应请联系官方售后。'
+  ), true)
 })
 
 test('双屏 2.0 的官方拍照翻译视频属于直接证据', () => {

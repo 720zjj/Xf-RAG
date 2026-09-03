@@ -72,6 +72,7 @@ function toEvidence(item, index, selectionReason) {
     factors: item?.factors || null,
     coversQuestion: inferCoverage(item),
     limitedScope: Boolean(item?.limitedScope || metadata.limitedScope),
+    crossModelCommon: Boolean(item?.crossModelCommon || metadata.crossModelCommon),
     selectionReason
   }
 }

@@ -76,6 +76,20 @@ test('已覆盖但资料范围有限时保守回答', () => {
   assert.equal(result.reasonCode, 'limited-evidence')
 })
 
+test('跨型号只复用通用排查并明确提示专属步骤仍需当前型号资料', () => {
+  const result = decideTrust({
+    question: '设备无法开机怎么办？',
+    requestedModel: '翻译机2.0',
+    availableModels: ['翻译机2.0'],
+    evidence: [{ ...supportedEvidence, productModel: '翻译机2.0', limitedScope: true, crossModelCommon: true }]
+  })
+
+  assert.equal(result.level, 'cautious')
+  assert.equal(result.reasonCode, 'common-device-guidance')
+  assert.match(result.userMessage, /通用设备排查/)
+  assert.match(result.userMessage, /具体菜单、按键组合和专属功能/)
+})
+
 test('有直接高分证据时允许回答', () => {
   const result = decideTrust({
     question: '怎样恢复出厂设置？',

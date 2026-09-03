@@ -145,6 +145,17 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   }))
 ])
 
+const COMMON_DEVICE_SUPPORT_INTENTS = new Set([
+  'network-support-escalation',
+  'network-troubleshooting',
+  'translation-inaccurate',
+  'device-heat',
+  'charging-failure',
+  'power-on-failure',
+  'no-sound',
+  'disassembly'
+])
+
 export function getDirectSupportIntent(question) {
   const text = String(question || '').replace(/\s+/g, '')
   return DIRECT_SUPPORT_INTENTS.find(intent => intent.question(text))?.id || ''
@@ -155,6 +166,19 @@ export function isDirectSupportEvidence(question, value) {
   if (!intent) return false
   const profile = DIRECT_SUPPORT_INTENTS.find(item => item.id === intent)
   return Boolean(profile?.evidence(String(value || '').replace(/\s+/g, ' ')))
+}
+
+/**
+ * Common, non-invasive troubleshooting can safely reuse a direct document
+ * answer across the two supported translator models. Product capabilities,
+ * menu paths, hardware key combinations and feature tutorials are excluded.
+ */
+export function isCommonDeviceSupportQuestion(question) {
+  return COMMON_DEVICE_SUPPORT_INTENTS.has(getDirectSupportIntent(question))
+}
+
+export function isCommonDeviceSupportEvidence(question, value) {
+  return isCommonDeviceSupportQuestion(question) && isDirectSupportEvidence(question, value)
 }
 
 export function isGettingStartedQuestion(question) {
