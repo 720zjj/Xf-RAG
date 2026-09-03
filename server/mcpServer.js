@@ -282,7 +282,7 @@ server.tool(
   { query: z.string().describe('视频检索关键词，如"连接WiFi""开机""蓝牙配对"'), productModel: z.string().optional().describe('产品型号过滤，如"翻译机4.0"') },
   async ({ query, productModel }) => {
     try {
-      let sql = `SELECT id, title, description, category, duration_seconds, video_url, product_model, view_count, resolve_count
+      let sql = `SELECT id, title, description, category, duration_seconds, video_url, playback_url, product_model, view_count, resolve_count
         FROM videos WHERE publish_status = 'published' AND review_status = 'approved' AND (title LIKE ? OR description LIKE ?)`
       const params = [`%${query}%`, `%${query}%`]
       if (productModel) { sql += ' AND (product_model = ? OR product_model = "")'; params.push(productModel) }

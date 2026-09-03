@@ -167,10 +167,11 @@ export function isNetworkSetupQuestion(question) {
 }
 
 export function isNetworkSetupEvidence(value) {
-  const text = String(value || '')
-  return /(连接\s*Wi[\s-]?Fi|Wi[\s-]?Fi\s*连接|连接\s*WLAN)/i.test(text)
-    && /(【WLAN】|目标网络|输入密码)/.test(text)
-    && /(?:^|\s)1[.、．)]\s*/.test(text)
+  const text = String(value || '').replace(/\s+/g, ' ')
+  const hasNetworkAction = /(?:连接|选择|点击|打开|开启|接入).{0,24}(?:Wi[\s-]?Fi|WLAN|无线网络)|(?:Wi[\s-]?Fi|WLAN|无线网络).{0,24}(?:连接|选择|点击|打开|开启|接入)/i.test(text)
+  const hasExecutableDetail = /(【WLAN】|目标网络|可用的?\s*Wi[\s-]?Fi|输入密码|快捷设置|Wi[\s-]?Fi\s*开关|插入\s*SIM\s*卡)/i.test(text)
+  const hasProcedure = /(?:^|\s)1[.、．)]\s*/.test(text) || /(首次使用需要联网激活|从主界面下拉)/.test(text)
+  return hasNetworkAction && hasExecutableDetail && hasProcedure
 }
 
 export function isTranslationLanguageSwitchQuestion(question) {

@@ -131,6 +131,38 @@ test('只有相邻资料时不能把切换翻译语种标记为已覆盖', () =>
   assert.equal(selected[0].coversQuestion, false)
 })
 
+test('联网问题优先直接联网步骤并把通话、热点等相邻片段标为不覆盖', () => {
+  const directNetwork = {
+    ...duplicateWifi,
+    chunkId: 252,
+    text: '【章节：双屏 2.0 官方快速上手视频核验 > 双屏 2.0 怎么联网】 1. 首次使用需要联网激活。 2. 选择可用的 WiFi，或插入 SIM 卡，按设备页面提示继续。',
+    score: 0.72,
+    factors: { coverage: 0.4 }
+  }
+  const adjacentCall = {
+    ...duplicateWifi,
+    chunkId: 253,
+    text: '打开翻译机并进入“通话翻译”，确保翻译机已经联网并打开蓝牙。',
+    score: 1.08,
+    factors: { coverage: 1, phraseMatch: true }
+  }
+  const adjacentHotspot = {
+    ...duplicateWifi,
+    chunkId: 254,
+    text: '进入“设置 → 网络与连接 → 共享热点”开启开关。',
+    score: 1.02,
+    factors: { coverage: 1, phraseMatch: true }
+  }
+
+  const selected = selectEvidence([adjacentCall, adjacentHotspot, directNetwork], { question: '怎么联网' })
+
+  assert.equal(selected[0].chunkId, 252)
+  assert.equal(selected[0].selectionReason, 'intent-match')
+  assert.equal(selected[0].coversQuestion, true)
+  assert.equal(selected.find(item => item.chunkId === 253).coversQuestion, false)
+  assert.equal(selected.find(item => item.chunkId === 254).coversQuestion, false)
+})
+
 test('官方常见问题原文会被选为两款机型的翻译语种直接证据', () => {
   const officialEvidence = [
     {

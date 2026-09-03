@@ -6,7 +6,7 @@ const MODEL_SOURCES = {
   '翻译机2.0': `${OFFICIAL_SOURCE_PAGE}?activeIndex=0`
 }
 
-function officialVideo({ externalId, title, productModel, category, path, thumbnailPath, tags }) {
+function officialVideo({ externalId, title, productModel, category, path, thumbnailPath, playbackUrl = '', tags }) {
   return Object.freeze({
     externalId,
     title,
@@ -18,6 +18,7 @@ function officialVideo({ externalId, title, productModel, category, path, thumbn
     tags: [...new Set([title, category, productModel, '官方视频', ...(tags || [])])],
     durationSeconds: 0,
     videoUrl: `https://${OFFICIAL_HOST}${path}`,
+    playbackUrl,
     thumbnailUrl: `https://${OFFICIAL_HOST}${thumbnailPath}`,
     sourceProvider: 'iflytek-h5',
     sourcePageUrl: MODEL_SOURCES[productModel],
@@ -49,6 +50,7 @@ export const OFFICIAL_VIDEO_CATALOG = Object.freeze([
   officialVideo({
     externalId: 'f7a055c0:quick-start', title: '快速上手', productModel: '翻译机2.0', category: '基础使用',
     path: '/static/files/user-guide/fyj_tb/v1/01_base_v1.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/01_base_v1.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518142012362.mp4',
     tags: ['首次使用', '第一次使用', '新机激活', '开机', '入门', '快速上手']
   }),
   officialVideo({
@@ -64,6 +66,7 @@ export const OFFICIAL_VIDEO_CATALOG = Object.freeze([
   officialVideo({
     externalId: 'f7a055c0:meeting', title: '会议翻译', productModel: '翻译机2.0', category: '翻译功能',
     path: '/static/files/user-guide/fyj_tb/v1/talk_v3.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/talk_v3.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518177674048.mp4',
     tags: ['会议', '多人会议', '会议记录']
   }),
   officialVideo({
@@ -74,26 +77,31 @@ export const OFFICIAL_VIDEO_CATALOG = Object.freeze([
   officialVideo({
     externalId: 'f7a055c0:call', title: '通话翻译', productModel: '翻译机2.0', category: '翻译功能',
     path: '/static/files/user-guide/fyj_tb/v1/sitelecom.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/sitelecom.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/525386076064.mp4',
     tags: ['通话', '电话翻译', '远程沟通']
   }),
   officialVideo({
     externalId: 'f7a055c0:ocr', title: '拍照翻译', productModel: '翻译机2.0', category: '拍照翻译',
     path: '/static/files/use-guide/fyj_tb/v1/ocr.mp4', thumbnailPath: '/static/files/use-guide/fyj_tb/v1/ocr.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518141628845.mp4',
     tags: ['照片翻译', '图片翻译', '相机', 'OCR']
   }),
   officialVideo({
     externalId: 'f7a055c0:group', title: '群组翻译', productModel: '翻译机2.0', category: '翻译功能',
     path: '/static/files/user-guide/fyj_tb/v1/meeting.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/meeting.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518097705641.mp4',
     tags: ['群组', '多人翻译', '群聊']
   }),
   officialVideo({
     externalId: 'f7a055c0:subtitle', title: '同声字幕', productModel: '翻译机2.0', category: '翻译功能',
     path: '/static/files/user-guide/fyj_tb/v1/assist.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/assist.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518097661584.mp4',
     tags: ['同声字幕', '实时字幕', '字幕翻译', '同传']
   }),
   officialVideo({
     externalId: 'f7a055c0:speech', title: '演讲翻译', productModel: '翻译机2.0', category: '翻译功能',
     path: '/static/files/user-guide/fyj_tb/v1/lecture.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/lecture.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518141928236.mp4',
     tags: ['演讲', '演讲翻译', '讲座']
   }),
   officialVideo({
@@ -104,6 +112,7 @@ export const OFFICIAL_VIDEO_CATALOG = Object.freeze([
   officialVideo({
     externalId: 'f7a055c0:records', title: '记录导出', productModel: '翻译机2.0', category: '基础使用',
     path: '/static/files/user-guide/fyj_tb/v1/records.mp4', thumbnailPath: '/static/files/user-guide/fyj_tb/v1/records.jpg',
+    playbackUrl: 'https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518142352135.mp4',
     tags: ['记录导出', '翻译记录', '导出记录', '同步记录']
   })
 ])
@@ -124,6 +133,18 @@ export function isTrustedOfficialThumbnailUrl(value) {
     const url = new URL(String(value || ''))
     return url.protocol === 'https:' && url.hostname === OFFICIAL_HOST &&
       url.pathname.startsWith('/static/files/') && /\.(?:png|jpe?g)$/i.test(url.pathname) &&
+      !url.username && !url.password && !url.search && !url.hash
+  } catch {
+    return false
+  }
+}
+
+export function isTrustedPlaybackVideoUrl(value) {
+  if (!value) return true
+  try {
+    const url = new URL(String(value))
+    return url.protocol === 'https:' && url.hostname === 'cloud.video.taobao.com' &&
+      /^\/+play\/u\/(?:null|\d+)\/p\/1\/e\/6\/t\/1\/\d+\.mp4$/i.test(url.pathname) &&
       !url.username && !url.password && !url.search && !url.hash
   } catch {
     return false

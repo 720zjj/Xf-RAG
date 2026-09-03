@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS videos (
   tags JSON,
   duration_seconds INT DEFAULT 0,
   video_url VARCHAR(500) DEFAULT '',
+  playback_url VARCHAR(700) DEFAULT '',
   thumbnail_url VARCHAR(500) DEFAULT '',
   source_provider VARCHAR(50) NOT NULL DEFAULT 'local',
   external_id VARCHAR(160) DEFAULT NULL,

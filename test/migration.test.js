@@ -66,8 +66,11 @@ test('视频表声明官方来源字段和幂等导入索引', () => {
   assert.match(combined, /external_id VARCHAR\(160\) DEFAULT NULL/)
   assert.match(combined, /source_page_url VARCHAR\(700\) DEFAULT ''/)
   assert.match(combined, /source_priority SMALLINT NOT NULL DEFAULT 0/)
+  assert.match(combined, /playback_url VARCHAR\(700\) DEFAULT ''/)
   assert.match(combined, /UNIQUE INDEX uq_video_external_source \(source_provider, external_id\)/)
   assert.match(migrationSource, /ensureColumn\(conn, dbName, 'videos', 'source_provider'/)
+  assert.match(migrationSource, /ensureColumn\(conn, dbName, 'videos', 'playback_url'/)
+  assert.match(migrationSource, /UPDATE videos SET playback_url = \?/)
   assert.match(migrationSource, /ensureIndex\(conn, dbName, 'videos', 'uq_video_external_source'/)
 })
 

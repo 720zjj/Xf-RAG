@@ -109,13 +109,17 @@ test('入门证据要求首次翻译操作和常用语音翻译章节', () => {
 test('区分连接 Wi-Fi 的基础操作与联网故障排查', () => {
   assert.equal(isNetworkSetupQuestion('翻译机怎么连接 Wi-Fi？'), true)
   assert.equal(isNetworkSetupQuestion('如何设置 WLAN？'), true)
+  assert.equal(isNetworkSetupQuestion('怎么联网'), true)
   assert.equal(isNetworkSetupQuestion('WiFi 密码正确但还是连不上怎么办？'), false)
   assert.equal(isNetworkSetupQuestion('WiFi 已连接但不能上网怎么办？'), false)
 })
 
 test('联网操作证据必须包含可执行的网络选择步骤', () => {
   assert.equal(isNetworkSetupEvidence('连接 WiFi： 1. 进入【设置】→【WLAN】。 2. 选择目标网络并输入密码。'), true)
+  assert.equal(isNetworkSetupEvidence('【双屏 2.0 怎么联网】1. 首次使用需要联网激活。2. 选择可用的 WiFi，或插入 SIM 卡，按设备页面提示继续。'), true)
+  assert.equal(isNetworkSetupEvidence('【日常打开 WiFi】1. 从主界面下拉打开快捷设置。2. 点击 WiFi 开关；需要连接时选择可用的 WiFi。'), true)
   assert.equal(isNetworkSetupEvidence('设备支持 WiFi 和移动网络。'), false)
+  assert.equal(isNetworkSetupEvidence('进入通话翻译前请确保翻译机已经联网并打开蓝牙。'), false)
 })
 
 test('识别切换翻译语种意图并排除相邻功能与故障问法', () => {

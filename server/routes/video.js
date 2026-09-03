@@ -15,6 +15,7 @@ import {
   getOfficialVideoCatalog,
   isTrustedOfficialThumbnailUrl,
   isTrustedOfficialVideoUrl,
+  isTrustedPlaybackVideoUrl,
   OFFICIAL_VIDEO_PROVIDER,
   selectOfficialVideos
 } from '../services/officialVideoCatalog.js'
@@ -273,7 +274,7 @@ router.post('/official-catalog/import', authMiddleware, requireAdmin, async (req
   let conn
   try {
     const selected = selectOfficialVideos(req.body?.externalIds)
-    if (selected.some(item => !isTrustedOfficialVideoUrl(item.videoUrl) || !isTrustedOfficialThumbnailUrl(item.thumbnailUrl))) {
+    if (selected.some(item => !isTrustedOfficialVideoUrl(item.videoUrl) || !isTrustedOfficialThumbnailUrl(item.thumbnailUrl) || !isTrustedPlaybackVideoUrl(item.playbackUrl))) {
       return res.status(500).json({ ok: false, error: '官方视频目录包含未通过来源校验的地址' })
     }
 
@@ -291,17 +292,18 @@ router.post('/official-catalog/import', authMiddleware, requireAdmin, async (req
       await conn.query(
         `INSERT INTO videos
           (title, description, brand, product_line, product_model, category, tags, duration_seconds,
-           video_url, thumbnail_url, source_provider, external_id, source_page_url, source_priority,
+           video_url, playback_url, thumbnail_url, source_provider, external_id, source_page_url, source_priority,
            review_status, publish_status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 'published', ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 'published', ?)
          ON DUPLICATE KEY UPDATE
            title = VALUES(title), description = VALUES(description), brand = VALUES(brand),
            product_line = VALUES(product_line), product_model = VALUES(product_model), category = VALUES(category),
            tags = VALUES(tags), duration_seconds = VALUES(duration_seconds), video_url = VALUES(video_url),
+           playback_url = VALUES(playback_url),
            thumbnail_url = VALUES(thumbnail_url), source_page_url = VALUES(source_page_url),
            source_priority = VALUES(source_priority), review_status = 'approved', publish_status = 'published'`,
         [item.title, item.description, item.brand, item.productLine, item.productModel, item.category,
-          JSON.stringify(item.tags), item.durationSeconds, item.videoUrl, item.thumbnailUrl,
+          JSON.stringify(item.tags), item.durationSeconds, item.videoUrl, item.playbackUrl, item.thumbnailUrl,
           item.sourceProvider, item.externalId, item.sourcePageUrl, item.sourcePriority, req.user.id]
       )
     }

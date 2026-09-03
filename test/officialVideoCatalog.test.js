@@ -5,6 +5,7 @@ import {
   getOfficialVideoCatalog,
   isTrustedOfficialThumbnailUrl,
   isTrustedOfficialVideoUrl,
+  isTrustedPlaybackVideoUrl,
   selectOfficialVideos
 } from '../server/services/officialVideoCatalog.js'
 
@@ -19,9 +20,21 @@ test('官方视频目录只包含首发两个型号的 16 条 HTTPS 视频', () 
     assert.equal(item.sourceProvider, 'iflytek-h5')
     assert.equal(item.sourcePriority, 100)
     assert.equal(isTrustedOfficialVideoUrl(item.videoUrl), true)
+    assert.equal(isTrustedPlaybackVideoUrl(item.playbackUrl), true)
     assert.equal(isTrustedOfficialThumbnailUrl(item.thumbnailUrl), true)
     assert.doesNotMatch(item.sourcePageUrl, /[?&]code=/)
   }
+})
+
+test('双屏 2.0 的已提供兼容播放地址仅允许固定淘宝视频 CDN 路径', () => {
+  const catalog = getOfficialVideoCatalog()
+  const compatible = catalog.filter(item => item.playbackUrl)
+  assert.equal(compatible.length, 8)
+  assert.ok(compatible.every(item => item.productModel === '翻译机2.0'))
+  assert.equal(isTrustedPlaybackVideoUrl('https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518097661584.mp4'), true)
+  assert.equal(isTrustedPlaybackVideoUrl('https://evil.example/play/u/null/p/1/e/6/t/1/518097661584.mp4'), false)
+  assert.equal(isTrustedPlaybackVideoUrl('http://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518097661584.mp4'), false)
+  assert.equal(isTrustedPlaybackVideoUrl('https://cloud.video.taobao.com/play/u/null/p/1/e/6/t/1/518097661584.mp4?code=temp'), false)
 })
 
 test('官方地址校验拒绝临时参数、非 HTTPS 和其他域名', () => {

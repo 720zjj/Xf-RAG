@@ -3,6 +3,7 @@ import dotenv from 'dotenv'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
+import { getOfficialVideoCatalog, OFFICIAL_VIDEO_PROVIDER } from './services/officialVideoCatalog.js'
 
 dotenv.config()
 
@@ -130,6 +131,16 @@ export async function runMigrations() {
     await ensureColumn(conn, dbName, 'videos', 'external_id', 'VARCHAR(160) DEFAULT NULL')
     await ensureColumn(conn, dbName, 'videos', 'source_page_url', "VARCHAR(700) DEFAULT ''")
     await ensureColumn(conn, dbName, 'videos', 'source_priority', 'SMALLINT NOT NULL DEFAULT 0')
+    await ensureColumn(conn, dbName, 'videos', 'playback_url', "VARCHAR(700) DEFAULT ''")
+
+    // 保留官方 H5 原地址用于溯源，同时为已导入的双屏 2.0 视频补充移动端兼容的 H.264 播放地址。
+    for (const item of getOfficialVideoCatalog().filter(video => video.playbackUrl)) {
+      await conn.query(
+        `UPDATE videos SET playback_url = ?
+         WHERE source_provider = ? AND external_id = ? AND COALESCE(playback_url, '') <> ?`,
+        [item.playbackUrl, OFFICIAL_VIDEO_PROVIDER, item.externalId, item.playbackUrl]
+      )
+    }
 
     const documentContent = await columnInfo(conn, dbName, 'documents', 'content')
     if (documentContent?.DATA_TYPE !== 'longtext') await conn.query('ALTER TABLE documents MODIFY COLUMN content LONGTEXT NULL')

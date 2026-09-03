@@ -9,6 +9,8 @@ import {
   isLiquidDamageQuestion,
   isOfflinePackageEvidence,
   isOfflinePackageQuestion,
+  isNetworkSetupEvidence,
+  isNetworkSetupQuestion,
   isTranslationReplayEvidence,
   isTranslationReplayQuestion,
   isTranslationLanguageSwitchEvidence,
@@ -92,6 +94,7 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
   const factoryResetQuestion = isFactoryResetQuestion(question)
   const liquidDamageQuestion = isLiquidDamageQuestion(question)
   const offlinePackageQuestion = isOfflinePackageQuestion(question)
+  const networkSetupQuestion = isNetworkSetupQuestion(question)
   const directSupportIntent = getDirectSupportIntent(question)
   const active = (Array.isArray(retrieved) ? retrieved : [])
     .filter(item => isActive(item) && text(item?.excerpt || item?.text))
@@ -110,13 +113,15 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
       const rightLiquidDamage = liquidDamageQuestion && isLiquidDamageEvidence(right?.excerpt || right?.text) ? 1 : 0
       const leftOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(left?.excerpt || left?.text) ? 1 : 0
       const rightOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(right?.excerpt || right?.text) ? 1 : 0
+      const leftNetworkSetup = networkSetupQuestion && isNetworkSetupEvidence(left?.excerpt || left?.text) ? 1 : 0
+      const rightNetworkSetup = networkSetupQuestion && isNetworkSetupEvidence(right?.excerpt || right?.text) ? 1 : 0
       const leftDirectSupport = directSupportIntent && isDirectSupportEvidence(question, left?.excerpt || left?.text) ? 1 : 0
       const rightDirectSupport = directSupportIntent && isDirectSupportEvidence(question, right?.excerpt || right?.text) ? 1 : 0
       const leftExactModel = requestedModel && text(sourceProductModel(left)) === requestedModel ? 1 : 0
       const rightExactModel = requestedModel && text(sourceProductModel(right)) === requestedModel ? 1 : 0
       const leftSafety = String(metadataFor(left).riskLevel || left?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
       const rightSafety = String(metadataFor(right).riskLevel || right?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
-      return rightDirectSupport - leftDirectSupport || rightTranslationLanguage - leftTranslationLanguage || rightTranslationReplay - leftTranslationReplay ||
+      return rightDirectSupport - leftDirectSupport || rightNetworkSetup - leftNetworkSetup || rightTranslationLanguage - leftTranslationLanguage || rightTranslationReplay - leftTranslationReplay ||
         rightFactoryReset - leftFactoryReset || rightLiquidDamage - leftLiquidDamage || rightOfflinePackage - leftOfflinePackage || rightGettingStarted - leftGettingStarted ||
         ((leftFactoryReset || leftLiquidDamage || leftGettingStarted) && (rightFactoryReset || rightLiquidDamage || rightGettingStarted)
           ? rightExactModel - leftExactModel
@@ -138,8 +143,9 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
     const directLiquidDamage = liquidDamageQuestion && isLiquidDamageEvidence(item?.excerpt || item?.text)
     const directGettingStarted = gettingStartedQuestion && isGettingStartedEvidence(item?.excerpt || item?.text)
     const directOfflinePackage = offlinePackageQuestion && isOfflinePackageEvidence(item?.excerpt || item?.text)
+    const directNetworkSetup = networkSetupQuestion && isNetworkSetupEvidence(item?.excerpt || item?.text)
     const directSupport = directSupportIntent && isDirectSupportEvidence(question, item?.excerpt || item?.text)
-    const directIntent = directSupport || directTranslationLanguage || directTranslationReplay || directFactoryReset || directLiquidDamage || directOfflinePackage || directGettingStarted
+    const directIntent = directSupport || directNetworkSetup || directTranslationLanguage || directTranslationReplay || directFactoryReset || directLiquidDamage || directOfflinePackage || directGettingStarted
     const selectedEvidence = toEvidence(
       item,
       selected.length,
@@ -151,6 +157,7 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
     if (liquidDamageQuestion) selectedEvidence.coversQuestion = directLiquidDamage
     if (gettingStartedQuestion) selectedEvidence.coversQuestion = directGettingStarted
     if (offlinePackageQuestion) selectedEvidence.coversQuestion = directOfflinePackage
+    if (networkSetupQuestion) selectedEvidence.coversQuestion = directNetworkSetup
     if (directSupportIntent) selectedEvidence.coversQuestion = directSupport
     selected.push(selectedEvidence)
     if (selected.length >= limit) break

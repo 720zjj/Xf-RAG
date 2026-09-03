@@ -74,7 +74,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     sop.common_errors = safeParse(sop.common_errors)
 
     // 查找关联视频
-    const [videos] = await pool.query('SELECT id, title, duration_seconds, video_url, thumbnail_url FROM videos WHERE source_sop_id = ? AND publish_status = "published" AND review_status = "approved"', [sop.id])
+    const [videos] = await pool.query('SELECT id, title, duration_seconds, video_url, playback_url, thumbnail_url FROM videos WHERE source_sop_id = ? AND publish_status = "published" AND review_status = "approved"', [sop.id])
     sop.related_videos = videos
 
     res.json({ ok: true, data: sop })

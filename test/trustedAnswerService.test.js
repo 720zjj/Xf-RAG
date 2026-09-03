@@ -353,6 +353,32 @@ test('连接 Wi-Fi 的常见问题直接展示已检索到的完整操作资料'
   assert.equal(result.sources[0].evidenceId, 'E4')
 })
 
+test('双屏 2.0 的简短联网问法使用官方视频核验步骤且不调用生成器', async () => {
+  const networkEvidence = [{
+    evidenceId: 'E1',
+    title: '双屏 2.0 官方快速上手视频核验',
+    excerpt: '【章节：双屏 2.0 官方快速上手视频核验 > 双屏 2.0 怎么联网】 1. 首次使用需要联网激活。 2. 选择可用的 WiFi，或插入 SIM 卡，按设备页面提示继续。',
+    sourceType: 'document_chunk',
+    rerankScore: 0.91,
+    coversQuestion: true
+  }]
+  let calls = 0
+
+  const result = await createTrustedAnswer({
+    question: '怎么联网',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: networkEvidence,
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.equal(result.answerSource, 'trusted-extractive')
+  assert.match(result.answer, /选择可用的 WiFi/)
+  assert.doesNotMatch(result.answer, /通话翻译|蓝牙/)
+})
+
 test('切换翻译语种有直接证据时确定性摘录，不调用生成器', async () => {
   const languageSwitchEvidence = [{
     evidenceId: 'E6',

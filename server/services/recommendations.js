@@ -309,7 +309,7 @@ export async function findVideoRecommendations(question, filters = {}) {
   const keywords = extractRecommendationKeywords(question)
   if (keywords.length === 0) return []
 
-  let sql = `SELECT id, title, description, category, duration_seconds, video_url, thumbnail_url,
+  let sql = `SELECT id, title, description, category, duration_seconds, video_url, playback_url, thumbnail_url,
                     product_line, product_model, tags, view_count, resolve_count,
                     source_provider, source_page_url, source_priority
              FROM videos WHERE publish_status = 'published' AND review_status = 'approved'`

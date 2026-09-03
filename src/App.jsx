@@ -270,6 +270,7 @@ function VideoRecommendationCard({ video, onPlay, onResolve, onTryNext, hasNext,
 
 function VideoPlayerDialog({ video, loadError, onError, onClose }) {
   const fallbackUrl = video.source_page_url || (/^https:\/\//.test(video.video_url || '') ? video.video_url : '')
+  const playbackUrl = video.playback_url || video.video_url
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.78)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={event => event.stopPropagation()} style={{ background: '#000', borderRadius: 14, maxWidth: 820, width: '100%', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.45)' }}>
@@ -281,7 +282,7 @@ function VideoPlayerDialog({ video, loadError, onError, onClose }) {
           <button type="button" onClick={onClose} aria-label="关闭视频" style={{ width: 36, height: 36, flex: '0 0 auto', background: 'none', border: 0, color: '#fff', fontSize: 20, cursor: 'pointer' }}>×</button>
         </div>
         <video
-          src={video.video_url}
+          src={playbackUrl}
           poster={video.thumbnail_url || undefined}
           controls
           playsInline
