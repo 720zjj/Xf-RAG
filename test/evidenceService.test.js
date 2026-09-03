@@ -272,6 +272,43 @@ test('支持哪些语言优先选择能力清单，切换语种片段不能冒�
   assert.equal(selected.find(item => item.chunkId === 270).coversQuestion, false)
 })
 
+test('支持语言的精确规格优先当前型号官方资料而不是高分通用旧口径', () => {
+  const selected = selectEvidence([
+    {
+      ...duplicateWifi,
+      docId: 5,
+      chunkId: 272,
+      docName: '产品功能说明.md',
+      text: '【章节：在线语音翻译】支持 83 种语言在线互译。',
+      score: 1.2,
+      metadata: {
+        productLine: '翻译机',
+        productModel: '翻译机2.0',
+        sourceProductModel: '',
+        effectiveStatus: 'active'
+      }
+    },
+    {
+      ...duplicateWifi,
+      docId: 34,
+      chunkId: 273,
+      docName: '讯飞双屏翻译机2.0官方常见问题.md',
+      text: '【章节：双屏翻译机 2.0 可以翻译哪些国家的语言？】双屏翻译机 2.0 支持 80 多种外语在线翻译，离线支持中文普通话与 17 种语言互译。',
+      score: 0.7,
+      metadata: {
+        productLine: '翻译机',
+        productModel: '翻译机2.0',
+        sourceProductModel: '讯飞双屏翻译机2.0',
+        effectiveStatus: 'active'
+      }
+    }
+  ], { question: '能翻译什么语种？', requestedModel: '翻译机2.0' })
+
+  assert.equal(selected[0].chunkId, 273)
+  assert.equal(selected[0].sourceProductModel, '讯飞双屏翻译机2.0')
+  assert.equal(selected[0].selectionReason, 'intent-match')
+})
+
 test('重新播放问题优先选择点读复听资料并排除仅自动朗读的片段', () => {
   const selected = selectEvidence([
     {

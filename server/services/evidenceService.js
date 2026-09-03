@@ -38,6 +38,20 @@ function sourceProductModel(item) {
   return Object.hasOwn(metadata, 'sourceProductModel') ? metadata.sourceProductModel : (metadata.productModel || item?.productModel)
 }
 
+function modelVersion(value) {
+  return text(value).match(/(?:^|[^0-9])(4\.0|2\.0)(?![0-9])/)?.[1] || ''
+}
+
+function matchesRequestedModel(value, requestedModel) {
+  const source = text(value)
+  const requested = text(requestedModel)
+  if (!source || !requested) return false
+  if (source === requested) return true
+  const sourceVersion = modelVersion(source)
+  const requestedVersion = modelVersion(requested)
+  return Boolean(sourceVersion && requestedVersion && sourceVersion === requestedVersion)
+}
+
 function isActive(item) {
   const status = String(metadataFor(item).effectiveStatus || item?.effectiveStatus || 'active').toLowerCase()
   return status === 'active'
@@ -67,6 +81,7 @@ function toEvidence(item, index, selectionReason) {
     excerpt,
     productLine: text(metadata.productLine || item?.productLine),
     productModel: text(metadata.productModel || item?.productModel),
+    sourceProductModel: text(sourceProductModel(item)),
     retrievalScore: numberOrNull(item?.bm25Score ?? item?.retrievalScore),
     rerankScore: numberOrNull(item?.score ?? item?.rerankScore),
     factors: item?.factors || null,
@@ -118,13 +133,14 @@ export function selectEvidence(retrieved, { limit = 5, question = '', requestedM
       const rightNetworkSetup = networkSetupQuestion && isNetworkSetupEvidence(right?.excerpt || right?.text) ? 1 : 0
       const leftDirectSupport = directSupportIntent && isDirectSupportEvidence(question, left?.excerpt || left?.text) ? 1 : 0
       const rightDirectSupport = directSupportIntent && isDirectSupportEvidence(question, right?.excerpt || right?.text) ? 1 : 0
-      const leftExactModel = requestedModel && text(sourceProductModel(left)) === requestedModel ? 1 : 0
-      const rightExactModel = requestedModel && text(sourceProductModel(right)) === requestedModel ? 1 : 0
+      const leftExactModel = matchesRequestedModel(sourceProductModel(left), requestedModel) ? 1 : 0
+      const rightExactModel = matchesRequestedModel(sourceProductModel(right), requestedModel) ? 1 : 0
       const leftSafety = String(metadataFor(left).riskLevel || left?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
       const rightSafety = String(metadataFor(right).riskLevel || right?.riskLevel || '').toLowerCase() === 'high' ? 1 : 0
       return rightDirectSupport - leftDirectSupport || rightNetworkSetup - leftNetworkSetup || rightTranslationLanguage - leftTranslationLanguage || rightTranslationReplay - leftTranslationReplay ||
         rightFactoryReset - leftFactoryReset || rightLiquidDamage - leftLiquidDamage || rightOfflinePackage - leftOfflinePackage || rightGettingStarted - leftGettingStarted ||
-        ((leftFactoryReset || leftLiquidDamage || leftGettingStarted) && (rightFactoryReset || rightLiquidDamage || rightGettingStarted)
+        ((leftDirectSupport || leftNetworkSetup || leftTranslationLanguage || leftTranslationReplay || leftFactoryReset || leftLiquidDamage || leftOfflinePackage || leftGettingStarted)
+          && (rightDirectSupport || rightNetworkSetup || rightTranslationLanguage || rightTranslationReplay || rightFactoryReset || rightLiquidDamage || rightOfflinePackage || rightGettingStarted)
           ? rightExactModel - leftExactModel
           : 0) || rightExact - leftExact ||
         (safetyQuestion ? rightSafety - leftSafety : 0) || candidateScore(right) - candidateScore(left)

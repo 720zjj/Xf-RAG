@@ -45,7 +45,10 @@ const DIRECT_SUPPORT_INTENTS = Object.freeze([
   {
     id: 'offline-translation-capability',
     question: text => /(?:没有|没|无)网络.{0,12}(?:还能|可以|能否|能不能)?.{0,6}翻译|出国.{0,12}(?:没有|没|无)网络/.test(text),
-    evidence: text => /离线翻译/.test(text) && /(无需网络连接|无网络(?:时|环境|翻译))/.test(text) && /(下载|语言包)/.test(text)
+    evidence: text => /离线翻译/.test(text) && (
+      (/(?:无需网络连接|无网络(?:时|环境|翻译))/.test(text) && /(下载|语言包)/.test(text))
+      || (/所有离线包/.test(text) && /(?:已内置|均已内置|无需联网下载)/.test(text))
+    )
   },
   {
     id: 'translation-slow',

@@ -39,6 +39,10 @@ test('direct support intent distinguishes covered troubleshooting from misleadin
   assert.equal(isDirectSupportEvidence('翻译机没有声音怎么办？', '设备没有声音怎么办？确认没有静音并调高媒体音量，断开蓝牙耳机或其他音频设备后重试。'), true)
   assert.equal(isDirectSupportEvidence('翻译机发热正常吗？', 'Q12：翻译机发热正常吗？若温度过高，请停止充电并联系官方售后。'), true)
   assert.equal(isDirectSupportEvidence('翻译机充不进去电怎么办？', 'Q11：翻译机充不进去电怎么办？检查充电线、适配器、接口、灰尘或异物。'), true)
+  assert.equal(isDirectSupportEvidence(
+    '出国没有网络还能翻译吗？',
+    '离线翻译方面支持中文普通话与 17 种语言离线互译；所有离线包均已内置，无需联网下载。'
+  ), true)
   assert.equal(isDirectSupportEvidence('翻译速度很慢怎么办？', '设置 → 播报语速'), false)
 })
 

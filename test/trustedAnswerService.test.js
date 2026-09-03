@@ -488,6 +488,106 @@ test('支持哪些语言直接摘录能力资料，不调用生成器也不误�
   assert.doesNotMatch(result.answer, /上滑|语种列表/)
 })
 
+test('支持语言的口语问法只采用当前型号直接资料，不拼接通用冲突数字', async () => {
+  const evidence = [
+    {
+      evidenceId: 'E31',
+      title: '讯飞双屏翻译机2.0官方常见问题.md',
+      excerpt: '【章节：双屏翻译机 2.0 可以翻译哪些国家的语言？】双屏翻译机 2.0 支持 80 多种外语在线翻译。离线翻译支持中文普通话与 17 种语言离线互译。',
+      sourceType: 'document_chunk',
+      productModel: '翻译机2.0',
+      sourceProductModel: '讯飞双屏翻译机2.0',
+      rerankScore: 0.8,
+      coversQuestion: true
+    },
+    {
+      evidenceId: 'E32',
+      title: '旧通用产品功能说明.md',
+      excerpt: '【章节：在线语音翻译】支持 83 种语言在线互译。支持中英、中俄、中日、中韩四组语言离线互译。',
+      sourceType: 'document_chunk',
+      productModel: '翻译机2.0',
+      sourceProductModel: '',
+      rerankScore: 1.1,
+      coversQuestion: true
+    }
+  ]
+  let calls = 0
+  const result = await createTrustedAnswer({
+    question: '能翻译什么语种？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence,
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.answerSource, 'trusted-extractive')
+  assert.match(result.answer, /80 多种外语在线翻译/)
+  assert.match(result.answer, /中文普通话与 17 种语言离线互译/)
+  assert.doesNotMatch(result.answer, /83 种|中英、中俄、中日、中韩/)
+  assert.deepEqual(result.sources.map(source => source.evidenceId), ['E31'])
+})
+
+test('当前型号没有精确语言资料时仍可先用直接通用资料回答', async () => {
+  const result = await createTrustedAnswer({
+    question: '能翻译什么语种？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: [{
+      evidenceId: 'E33',
+      title: '通用产品功能说明.md',
+      excerpt: '【章节：在线语音翻译】支持 83 种语言在线互译。',
+      sourceType: 'document_chunk',
+      productModel: '翻译机2.0',
+      sourceProductModel: '',
+      rerankScore: 0.8,
+      coversQuestion: true
+    }],
+    generate: async () => '{}'
+  })
+
+  assert.equal(result.trust.level, 'answer')
+  assert.match(result.answer, /83 种语言在线互译/)
+})
+
+test('双屏 2.0 没网翻译问题使用本型号内置离线包资料直接回答', async () => {
+  let calls = 0
+  const result = await createTrustedAnswer({
+    question: '出国没有网络还能翻译吗？',
+    requestedModel: '翻译机2.0',
+    decision: supported,
+    evidence: [
+      {
+        evidenceId: 'E34',
+        title: '讯飞双屏翻译机2.0官方常见问题.md',
+        excerpt: '【章节：双屏翻译机 2.0 可以翻译哪些国家的语言？】离线翻译方面，语音翻译、会议会谈和旁听同传支持中文普通话与 17 种语言离线互译。所有离线包均已内置，无需联网下载。',
+        sourceType: 'document_chunk',
+        productModel: '翻译机2.0',
+        sourceProductModel: '翻译机2.0',
+        rerankScore: 0.8,
+        coversQuestion: true
+      },
+      {
+        evidenceId: 'E35',
+        title: '翻译机4.0用户操作手册.md',
+        excerpt: '【章节：离线翻译】已下载的离线包可在无网络时使用对应离线翻译能力。',
+        sourceType: 'document_chunk',
+        productModel: '翻译机2.0',
+        sourceProductModel: '翻译机4.0',
+        rerankScore: 1,
+        coversQuestion: true
+      }
+    ],
+    generate: async () => { calls += 1; return '{}' }
+  })
+
+  assert.equal(calls, 0)
+  assert.equal(result.trust.level, 'answer')
+  assert.match(result.answer, /所有离线包均已内置，无需联网下载/)
+  assert.doesNotMatch(result.answer, /已下载的离线包/)
+  assert.deepEqual(result.sources.map(source => source.evidenceId), ['E34'])
+})
+
 test('翻译结果重新播放使用点读复听资料生成清晰步骤', async () => {
   const replayEvidence = [
     {

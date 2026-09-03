@@ -30,6 +30,10 @@ const BLOCK_LABELS = Object.freeze({
 const EMERGENCY_PATTERN = /(起火|着火|明火|冒烟|燃烧|爆炸)/
 const EMERGENCY_ACTION_PATTERN = /(立即|马上|停止使用|断开|拔下|远离|撤离|联系售后|拨打\s*119|灭火)/
 const MANUAL_SUPPORT_TEXT = '如需进一步协助，请联系人工客服，服务时间为每日 09:00–18:00。'
+const MODEL_SPECIFIC_CAPABILITY_INTENTS = new Set([
+  'supported-language-capability',
+  'offline-translation-capability'
+])
 
 function cleanText(value) {
   return String(value || '')
@@ -40,6 +44,24 @@ function cleanText(value) {
 
 function comparableText(value) {
   return cleanText(value).toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '')
+}
+
+function modelVersion(value) {
+  return cleanText(value).match(/(?:^|[^0-9])(4\.0|2\.0)(?![0-9])/)?.[1] || ''
+}
+
+function matchesRequestedModel(value, requestedModel) {
+  const source = cleanText(value)
+  const requested = cleanText(requestedModel)
+  if (!source || !requested) return false
+  if (source === requested) return true
+  const sourceVersion = modelVersion(source)
+  const requestedVersion = modelVersion(requested)
+  return Boolean(sourceVersion && requestedVersion && sourceVersion === requestedVersion)
+}
+
+function evidenceSourceProductModel(item) {
+  return Object.hasOwn(item || {}, 'sourceProductModel') ? item.sourceProductModel : item?.productModel
 }
 
 function isVerbatimEvidenceSupport(block, evidenceById) {
@@ -345,9 +367,19 @@ function buildOfficialPhotoTranslationBlocks(evidence, requestedModel = '') {
 function buildExtractiveAnswer({ question, evidence, decision, requestedModel = '' }) {
   const exactEvidence = exactQuestionEvidence(question, evidence).slice(0, 2)
   const directSupportIntent = getDirectSupportIntent(question)
-  const directSupportEvidence = directSupportIntent
-    ? (Array.isArray(evidence) ? evidence : []).filter(item => isDirectSupportEvidence(question, item?.excerpt)).slice(0, 2)
+  const allDirectSupportEvidence = directSupportIntent
+    ? (Array.isArray(evidence) ? evidence : []).filter(item => isDirectSupportEvidence(question, item?.excerpt))
     : []
+  const exactModelDirectSupportEvidence = allDirectSupportEvidence.filter(item => (
+    matchesRequestedModel(evidenceSourceProductModel(item), requestedModel)
+  ))
+  // Language counts and supported-language lists are model-specific facts. If
+  // the current model has direct evidence, never combine it with a generic or
+  // differently scoped capability list. When it does not, retaining the direct
+  // generic evidence still fulfils the answer-first policy.
+  const directSupportEvidence = MODEL_SPECIFIC_CAPABILITY_INTENTS.has(directSupportIntent) && exactModelDirectSupportEvidence.length > 0
+    ? exactModelDirectSupportEvidence.slice(0, 2)
+    : allDirectSupportEvidence.slice(0, 2)
   const translationLanguageSwitchQuestion = isTranslationLanguageSwitchQuestion(question)
   const translationLanguageSwitchEvidence = translationLanguageSwitchQuestion
     ? (Array.isArray(evidence) ? evidence : []).filter(item => isTranslationLanguageSwitchEvidence(item?.excerpt)).slice(0, 1)
