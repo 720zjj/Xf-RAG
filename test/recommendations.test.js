@@ -208,3 +208,18 @@ test('恢复出厂和进水问题不推荐仅有宽泛设备关键词的内容',
     question: '翻译机进水了怎么办？', keywords: ['进水'], productModel: '翻译机4.0'
   }), [])
 })
+
+test('语种支持范围问题不附带无关视频或 SOP', () => {
+  const videos = [
+    { id: 1, title: '语音翻译', description: '支持英语翻译', product_model: '翻译机2.0', tags: ['英语'] },
+    { id: 2, title: '会议翻译', description: '英语会议翻译演示', product_model: '翻译机2.0', tags: ['英语'] }
+  ]
+  const sops = [
+    { id: 1, title: '使用语音翻译功能', steps: '["选择英语"]' }
+  ]
+
+  assert.deepEqual(rankVideos(videos, {
+    question: '英语能翻译吗？', keywords: ['英语'], productModel: '翻译机2.0'
+  }), [])
+  assert.deepEqual(filterSopRecommendationsForQuestion(sops, '支持英语翻译吗？'), [])
+})

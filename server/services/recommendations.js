@@ -23,6 +23,10 @@ const TROUBLESHOOT_VIDEO_TERMS = ['排查', '失败', '异常', '无法', '错�
 const LEARN_VIDEO_TERMS = ['教程', '演示', '操作', '入门', '基础', '使用', '设置', '连接']
 const TRANSLATION_LANGUAGE_ACTION_TERMS = ['切换', '更换', '修改', '选择', '设置', '调整']
 const TRANSLATION_LANGUAGE_OBJECT_TERMS = ['翻译语言', '翻译语种', '互译语言', '互译语种', '语言对', '源语言', '目标语言']
+const INFORMATION_ONLY_INTENTS = new Set([
+  'supported-language-capability',
+  'offline-translation-capability'
+])
 
 function textIncludes(value, keyword) {
   const normalize = input => String(input || '').toLocaleLowerCase().replace(/[\s_-]+/g, '')
@@ -180,7 +184,7 @@ export function rankVideos(videos, { question = '', keywords = [], productLine =
   const needsOfflinePackage = isOfflinePackageQuestion(question)
   const needsGettingStarted = isGettingStartedQuestion(question)
   const directSupportIntent = getDirectSupportIntent(question)
-  if (directSupportIntent === 'disassembly') return []
+  if (directSupportIntent === 'disassembly' || INFORMATION_ONLY_INTENTS.has(directSupportIntent)) return []
   const expectedOfficialTitle = expectedOfficialVideoTitle(question)
 
   return videos
@@ -296,7 +300,8 @@ export function filterSopRecommendationsForQuestion(sops, question) {
     sop?.steps,
     sop?.completion_check
   ].filter(Boolean).join(' ')
-  if (getDirectSupportIntent(question) === 'disassembly') return []
+  const directSupportIntent = getDirectSupportIntent(question)
+  if (directSupportIntent === 'disassembly' || INFORMATION_ONLY_INTENTS.has(directSupportIntent)) return []
   if (isTranslationReplayQuestion(question)) return list.filter(sop => isTranslationReplayEvidence(searchable(sop)))
   if (isFactoryResetQuestion(question)) return list.filter(sop => /(恢复出厂|出厂设置|重置设备)/.test(searchable(sop)))
   if (isLiquidDamageQuestion(question)) return list.filter(sop => /(进水|浸水|液体接触)/.test(searchable(sop)))
